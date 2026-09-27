@@ -99,6 +99,8 @@ tests/                         smoke_test.gd 冒烟测试 / engine_loop_test.gd 
 
 ## 架构：EventBus 中转
 
+> 详细的代码结构与调用链分析见 [docs/architecture.md](docs/architecture.md)。
+
 UI 层不创建、不持有任何逻辑层实例。逻辑层服务以 autoload 注册
 （`Events` 总线 / `LLM` 模型服务 / `Dialogue` 对话引擎），彼此通过主题通信：
 
