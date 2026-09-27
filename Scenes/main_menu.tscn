@@ -1,0 +1,76 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UI/main_menu_ui.gd" id="1_menu_ui"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu"]
+content_margin_left = 40.0
+content_margin_top = 32.0
+content_margin_right = 40.0
+content_margin_bottom = 32.0
+bg_color = Color(0.121569, 0.12549, 0.160784, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.227451, 0.231373, 0.290196, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu_ui")
+
+[node name="MenuCenter" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MenuPanel" type="PanelContainer" parent="MenuCenter"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(460, 0)
+theme_override_styles/panel = SubResource("StyleBoxFlat_menu")
+
+[node name="MenuBox" type="VBoxContainer" parent="MenuCenter/MenuPanel"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="MenuTitle" type="Label" parent="MenuCenter/MenuPanel/MenuBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "欲望之都"
+horizontal_alignment = 1
+
+[node name="MenuSubtitle" type="Label" parent="MenuCenter/MenuPanel/MenuBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 14
+text = "AI 互动小说 · 对话原型（阶段一）"
+horizontal_alignment = 1
+
+[node name="MenuHSeparator" type="HSeparator" parent="MenuCenter/MenuPanel/MenuBox"]
+layout_mode = 2
+
+[node name="MenuDialogueBtn" type="Button" parent="MenuCenter/MenuPanel/MenuBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 44)
+text = "人物对话"
+
+[node name="MenuSettingsBtn" type="Button" parent="MenuCenter/MenuPanel/MenuBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 44)
+text = "设置"
+
+[connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuDialogueBtn" to="." method="_on_menu_dialogue_pressed"]
+[connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuSettingsBtn" to="." method="_on_menu_settings_pressed"]

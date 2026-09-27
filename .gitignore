@@ -1,0 +1,9 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# 运行时产物（不应入库）
+*.tmp
+
+# ZCode 会话产物
+.zcode/

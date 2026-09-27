@@ -1,0 +1,151 @@
+[gd_scene format=3 uid="uid://tg4xdxejcelp"]
+
+[ext_resource type="Script" uid="uid://ch2rwvh7oo83l" path="res://Scripts/UI/settings_screen_ui.gd" id="1_settings_ui"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu"]
+content_margin_left = 40.0
+content_margin_top = 32.0
+content_margin_right = 40.0
+content_margin_bottom = 32.0
+bg_color = Color(0.121569, 0.12549, 0.160784, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.227451, 0.231373, 0.290196, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="SettingsScreen" type="Control" unique_id=1361515404]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_settings_ui")
+
+[node name="SettingsCenter" type="CenterContainer" parent="." unique_id=258364888]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SettingsPanel" type="PanelContainer" parent="SettingsCenter" unique_id=1066875174]
+custom_minimum_size = Vector2(640, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_menu")
+
+[node name="SettingsBox" type="VBoxContainer" parent="SettingsCenter/SettingsPanel" unique_id=1657120497]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="SettingsTitle" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1574509266]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "设置"
+
+[node name="SettingsHSeparator" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1230601021]
+layout_mode = 2
+
+[node name="ApiCaption" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1684233523]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "DeepSeek API（Key 保存在本机 user://config.cfg；留空使用离线示例模式）"
+
+[node name="ApiKeyEdit" type="LineEdit" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1426893545]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "粘贴 DeepSeek API Key；留空使用离线示例"
+secret = true
+
+[node name="ModelCaption" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=798966246]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "模型"
+
+[node name="ApiModelOption" type="OptionButton" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1590271470]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="TestRow" type="HBoxContainer" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1699692631]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TestBtn" type="Button" parent="SettingsCenter/SettingsPanel/SettingsBox/TestRow" unique_id=150835002]
+unique_name_in_owner = true
+layout_mode = 2
+text = "测试连接"
+
+[node name="ApiTestLabel" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox/TestRow" unique_id=1012758362]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+text = " "
+
+[node name="SettingsHSeparator2" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=101527206]
+layout_mode = 2
+
+[node name="ReviewRow" type="HBoxContainer" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1213159880]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ReviewToggle" type="CheckButton" parent="SettingsCenter/SettingsPanel/SettingsBox/ReviewRow" unique_id=1967008306]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "输入审查"
+
+[node name="ReviewHint" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox/ReviewRow" unique_id=966878371]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "开启后每次发言先经 LLM 审查：括号/星号/空格包裹的动作与诱导注入会被拒绝。关闭则直通对话，响应更快。"
+autowrap_mode = 3
+
+[node name="SettingsHSeparator3" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=499516789]
+layout_mode = 2
+
+[node name="PersonaHSeparator" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+
+[node name="PersonaCaption" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "玩家人设（留空则 NPC 只看到“来客”，不感知你的身份）"
+
+[node name="PlayerIdentityEdit" type="LineEdit" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "世界内身份，如：流浪剑客、初来的学生"
+
+[node name="PlayerStyleEdit" type="LineEdit" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "说话风格，如：礼貌但好奇、粗鲁直率"
+
+[node name="SettingsSaveBtn" type="Button" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=891566177]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "保存 API 设置并应用"
+
+[node name="SettingsBackBtn" type="Button" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1711424912]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "返回主菜单"
+
+[connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/TestRow/TestBtn" to="." method="_on_api_test_pressed"]
+[connection signal="toggled" from="SettingsCenter/SettingsPanel/SettingsBox/ReviewRow/ReviewToggle" to="." method="_on_review_toggle_toggled"]
+[connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/SettingsSaveBtn" to="." method="_on_settings_save_pressed"]
+[connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/SettingsBackBtn" to="." method="_on_back_pressed"]

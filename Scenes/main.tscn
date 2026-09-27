@@ -1,0 +1,26 @@
+[gd_scene load_steps=5 format=3 uid="uid://bqet7iq7y4dm0"]
+
+[ext_resource type="Script" uid="uid://dsjot6hhhu2pw" path="res://Scripts/UI/main_ui.gd" id="1_mainui"]
+[ext_resource type="PackedScene" path="res://Scenes/main_menu.tscn" id="2_menu"]
+[ext_resource type="PackedScene" path="res://Scenes/settings_screen.tscn" id="3_settings"]
+[ext_resource type="PackedScene" path="res://Scenes/dialogue_screen.tscn" id="4_dialogue"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_mainui")
+
+[node name="MainMenu" parent="." instance=ExtResource("2_menu")]
+unique_name_in_owner = true
+
+[node name="SettingsScreen" parent="." instance=ExtResource("3_settings")]
+unique_name_in_owner = true
+visible = false
+
+[node name="DialogueScreen" parent="." instance=ExtResource("4_dialogue")]
+unique_name_in_owner = true
+visible = false
