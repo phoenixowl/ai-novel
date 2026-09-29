@@ -15,17 +15,17 @@ var members: Array[Dictionary] = []  # 每项 {name: String, position: String}
 ## 从设定 JSON 解析组织（名称/介绍/成员表：名称+职位）。data：组织 Dictionary。
 static func from_dict(data: Dictionary) -> Faction:
 	var faction := Faction.new()
-	faction.id = str(JsonUtil.pick(data, ["id"], ""))
-	faction.faction_name = str(JsonUtil.pick(data, ["name", "名称"], faction.id))
-	faction.description = str(JsonUtil.pick(data, ["description", "介绍"], ""))
-	var raw_members: Variant = JsonUtil.pick(data, ["members", "成员"], [])
+	faction.id = str(JsonTool.pick(data, ["id"], ""))
+	faction.faction_name = str(JsonTool.pick(data, ["name", "名称"], faction.id))
+	faction.description = str(JsonTool.pick(data, ["description", "介绍"], ""))
+	var raw_members: Variant = JsonTool.pick(data, ["members", "成员"], [])
 	if raw_members is Array:
 		for item in raw_members:
 			if item is Dictionary:
 				var member: Dictionary = item
 				var record := {
-					"name": str(JsonUtil.pick(member, ["name", "名称"], "")),
-					"position": str(JsonUtil.pick(member, ["position", "职位"], "成员")),
+					"name": str(JsonTool.pick(member, ["name", "名称"], "")),
+					"position": str(JsonTool.pick(member, ["position", "职位"], "成员")),
 				}
 				if not record["name"].is_empty():
 					faction.members.append(record)

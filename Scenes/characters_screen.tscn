@@ -1,0 +1,82 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UI/characters_screen.gd" id="1_characters_ui"]
+
+[node name="CharactersScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_characters_ui")
+
+[node name="RootMargin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="RootBox" type="VBoxContainer" parent="RootMargin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="HeaderBox" type="HBoxContainer" parent="RootMargin/RootBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="BackBtn" type="Button" parent="RootMargin/RootBox/HeaderBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "← 菜单"
+
+[node name="Title" type="Label" parent="RootMargin/RootBox/HeaderBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "人物"
+
+[node name="StatusLabel" type="Label" parent="RootMargin/RootBox/HeaderBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+text = ""
+
+[node name="RestoreBtn" type="Button" parent="RootMargin/RootBox/HeaderBox"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "删除全部人物运行时快照（人设/知识/记忆），回到作者卡面。好感度与对话日志保留。"
+text = "还原设定"
+
+[node name="HSeparator" type="HSeparator" parent="RootMargin/RootBox"]
+layout_mode = 2
+
+[node name="Scroll" type="ScrollContainer" parent="RootMargin/RootBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Grid" type="GridContainer" parent="RootMargin/RootBox/Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+columns = 3
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
+
+[node name="RestoreConfirm" type="AcceptDialog" parent="."]
+unique_name_in_owner = true
+title = "还原设定"
+size = Vector2i(520, 160)
+dialog_text = "删除全部人物的运行时快照（人设、知识、记忆的修改），回到作者卡面？好感度与对话日志会保留。"
+ok_button_text = "还原设定"
+
+[connection signal="pressed" from="RootMargin/RootBox/HeaderBox/BackBtn" to="." method="_on_back_pressed"]
+[connection signal="pressed" from="RootMargin/RootBox/HeaderBox/RestoreBtn" to="." method="_on_restore_pressed"]
+[connection signal="confirmed" from="RestoreConfirm" to="." method="_on_restore_confirmed"]

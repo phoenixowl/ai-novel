@@ -13,11 +13,13 @@ extends RefCounted
 ## 所有解析问题记入 load_report，不中断加载；组织引用做悬空校验。
 ## 注意：res://settings/ 是作者数据目录，本文件是加载它的代码（Scripts/Lore/）。
 
+const SnapshotStore := preload("res://Scripts/Lore/snapshot_store.gd")
 
 const SETTING_ROOT := "res://settings"
 const FACTIONS_FILE := SETTING_ROOT + "/factions.json"
 
 var worldview_text := ""
+var player_card := PlayerCard.new()
 var factions := {}        # id -> Faction（组织）
 var characters := {}      # id -> CharacterCard
 var scenes := {}          # id -> SceneCard
@@ -36,9 +38,11 @@ func load_all() -> bool:
 	worldview_text = _read_text(SETTING_ROOT + "/worldview.txt")
 	if worldview_text.is_empty():
 		load_report.append("未找到 worldview.txt，世界观为空")
+	_load_player()
 
 	_load_factions()
 	_load_characters()
+	_apply_persona_snapshots()
 	_resolve_factions()
 	_load_scenes()
 	_load_memory()
@@ -48,6 +52,24 @@ func load_all() -> bool:
 		factions.size(), characters.size(), _knowledge_count(), scenes.size(), memory.size(),
 	])
 	return ok
+
+
+## 加载玩家人物卡：先取 res://settings/player.json（作者默认），再叠加 user://player.json（运行时修改）。
+func _load_player() -> void:
+	var data := _parse_json_file(SETTING_ROOT + "/player.json")
+	if not data.is_empty():
+		player_card = PlayerCard.from_dict(data)
+	# 运行时覆盖
+	if FileAccess.file_exists("user://player.json"):
+		var override: Variant = JSON.parse_string(FileAccess.get_file_as_string("user://player.json"))
+		if override is Dictionary:
+			var d: Dictionary = override
+			if d.has("name"):
+				player_card.display_name = str(d["name"])
+			if d.has("identity"):
+				player_card.identity = str(d["identity"])
+			if d.has("appearance"):
+				player_card.appearance = str(d["appearance"])
 
 
 # ———— 查询接口（供引擎与 UI 使用） ————
@@ -101,9 +123,8 @@ func overview_text() -> String:
 		var card: CharacterCard = characters[id]
 		p.append("● %s（%s）" % [card.display_name, id])
 		p.append("  身份：%s" % card.identity)
-		p.append("  性格：%s" % card.personality)
-		p.append("  说话方式：%s" % card.speech_style)
-		p.append("  心情基准：%s" % card.mood_baseline)
+		p.append("  人物设定：%s" % card.profile)
+		p.append("  初始好感度：%d" % card.affinity)
 		if not card.memberships.is_empty():
 			p.append("  所属组织：%s" % "、".join(_membership_lines(card)))
 		p.append("  初始知识（%d 条，日志 [%d..%d]）：" % [
@@ -164,7 +185,7 @@ func _load_factions() -> void:
 	if data.is_empty():
 		load_report.append("组织文件解析失败：%s（不存在或不是有效 JSON）" % FACTIONS_FILE)
 		return
-	var raw_factions: Variant = JsonUtil.pick(data, ["factions", "组织"], [])
+	var raw_factions: Variant = JsonTool.pick(data, ["factions", "组织"], [])
 	if not (raw_factions is Array):
 		load_report.append("组织文件缺少 factions 数组：%s" % FACTIONS_FILE)
 		return
@@ -182,6 +203,22 @@ func _load_factions() -> void:
 		factions[faction.id] = faction
 		count += 1
 	load_report.append("组织：加载 %d 个" % count)
+
+
+## 应用人物快照的 persona 区（字段级覆盖：快照有该键才接管，缺失跟随作者卡面）。
+## 在组织解析之前调用——职位按 display_name 匹配，改名后据此生效。
+func _apply_persona_snapshots() -> void:
+	for id in characters:
+		var persona := SnapshotStore.read_persona(id)
+		if persona.is_empty():
+			continue
+		var card: CharacterCard = characters[id]
+		if persona.has("name") and not (persona["name"] as String).is_empty():
+			card.display_name = persona["name"]
+		if persona.has("identity"):
+			card.identity = persona["identity"]
+		if persona.has("profile"):
+			card.profile = persona["profile"]
 
 
 ## 解析人物卡所属组织 → memberships（faction 引用 + 按 display_name 在成员表匹配职位）；
@@ -257,8 +294,8 @@ func _load_memory() -> void:
 		var data := _parse_json_file(dir_path + "/" + file_name)
 		if data.is_empty():
 			continue
-		var npc_id := str(JsonUtil.pick(data, ["npc_id", "人物"], ""))
-		var summary := str(JsonUtil.pick(data, ["summary", "摘要"], ""))
+		var npc_id := str(JsonTool.pick(data, ["npc_id", "人物"], ""))
+		var summary := str(JsonTool.pick(data, ["summary", "摘要"], ""))
 		if not npc_id.is_empty() and not summary.is_empty():
 			memory[npc_id] = summary
 

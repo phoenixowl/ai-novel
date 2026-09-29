@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3]
 
-[ext_resource type="Script" path="res://Scripts/UI/main_menu_ui.gd" id="1_menu_ui"]
+[ext_resource type="Script" path="res://Scripts/UI/main_menu_screen.gd" id="1_menu_ui"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu"]
 content_margin_left = 40.0
@@ -38,6 +38,7 @@ grow_vertical = 2
 [node name="MenuPanel" type="PanelContainer" parent="MenuCenter"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(460, 0)
+layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu")
 
 [node name="MenuBox" type="VBoxContainer" parent="MenuCenter/MenuPanel"]
@@ -66,6 +67,12 @@ layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
 text = "人物对话"
 
+[node name="MenuCharactersBtn" type="Button" parent="MenuCenter/MenuPanel/MenuBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 44)
+text = "人物"
+
 [node name="MenuSettingsBtn" type="Button" parent="MenuCenter/MenuPanel/MenuBox"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -73,4 +80,5 @@ custom_minimum_size = Vector2(0, 44)
 text = "设置"
 
 [connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuDialogueBtn" to="." method="_on_menu_dialogue_pressed"]
+[connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuCharactersBtn" to="." method="_on_menu_characters_pressed"]
 [connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuSettingsBtn" to="." method="_on_menu_settings_pressed"]

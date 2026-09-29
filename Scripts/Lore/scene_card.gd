@@ -15,11 +15,11 @@ var opening_situation := ""  ## 开场情境说明
 ## 从设定 JSON 解析场景卡（环境/氛围/开场情境）。data：场景卡 Dictionary。
 static func from_dict(data: Dictionary) -> SceneCard:
 	var card := SceneCard.new()
-	card.id = str(JsonUtil.pick(data, ["id"], ""))
-	card.scene_name = str(JsonUtil.pick(data, ["name", "scene_name", "场景名"], card.id))
-	card.environment = str(JsonUtil.pick(data, ["environment", "环境"], ""))
-	card.atmosphere = str(JsonUtil.pick(data, ["atmosphere", "氛围"], ""))
-	card.opening_situation = str(JsonUtil.pick(data, ["opening_situation", "开场情境"], ""))
+	card.id = str(JsonTool.pick(data, ["id"], ""))
+	card.scene_name = str(JsonTool.pick(data, ["name", "scene_name", "场景名"], card.id))
+	card.environment = str(JsonTool.pick(data, ["environment", "环境"], ""))
+	card.atmosphere = str(JsonTool.pick(data, ["atmosphere", "氛围"], ""))
+	card.opening_situation = str(JsonTool.pick(data, ["opening_situation", "开场情境"], ""))
 	return card
 
 

@@ -4,9 +4,9 @@ extends RefCounted
 ## 在玩家输入进入对话流程之前，用 LLM 判断它是否为“纯发言”。
 ##   拒绝：括号/星号/空格包裹的动作描写、诱导性提问、注入指令等非台词内容。
 ##   放行：普通发言（疑问、闲聊、挑衅、撒谎皆合法）；拿不准时放行。
-## 失败开放：审查请求失败或结论无法解析时由调用方（DialogueEngine）放行——
+## 失败开放：审查请求失败或结论无法解析时由调用方（DialogueController）放行——
 ## 审查器是闸门，闸门坏了不能堵死玩家。
-## 提示词由本类组装；结论从 LLMService.complete_json 提取好的 Dictionary 读取
+## 提示词由本类组装；结论从 LLMController.complete_json 提取好的 Dictionary 读取
 ## （调用入口见 verdict_of）。
 
 
@@ -47,8 +47,8 @@ func user_prompt(player_text: String) -> String:
 ## 返回 {approved: bool, reason: String, notes: Array}
 static func verdict_of(data: Dictionary) -> Dictionary:
 	var notes: Array[String] = []
-	var verdict := str(JsonUtil.pick(data, ["verdict", "结论"], ""))
-	var reason := str(JsonUtil.pick(data, ["reason", "理由"], ""))
+	var verdict := str(JsonTool.pick(data, ["verdict", "结论"], ""))
+	var reason := str(JsonTool.pick(data, ["reason", "理由"], ""))
 	var approved := true
 	match verdict:
 		"reject", "拒绝":

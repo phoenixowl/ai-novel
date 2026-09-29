@@ -6,8 +6,8 @@ extends RefCounted
 ## 逐字证据，表述总结（summary→content）交给模型但证据锚定真实发言。
 ##
 ## 条目 seq 规则：卡片初始条目按卡片顺序 1..N（会话内稳定）；习得条目从 10000 持久递增。
-## 持久化 user://journals/<npc_id>.json——只存习得条目与会话摘要（卡片条目每次从卡重建，
-## 作者改卡不被运行时遮蔽）。
+## 持久化 = 人物运行时快照 user://characters/<npc_id>.json 的 journal 区（全量条目 + 记忆）：
+## 对话学习与编辑页保存都写快照（统一写路径）；旧版 user://journals/<npc_id>.json 仅兼容读取。
 ##
 ## 信任算术（全部确定性，引擎定事实）：
 ##   独立来源佐证 → +1 档（上限 绝对可信）；同来源佐证无效
@@ -15,6 +15,7 @@ extends RefCounted
 ##   voided 条目被佐证 → 复活为 怀疑
 ##   玩家言论永不直接产生 绝对可信 / voided（void 预留给阶段二引擎事件）
 
+const SnapshotStore := preload("res://Scripts/Lore/snapshot_store.gd")
 
 ## 信任梯（索引即强度：0 < 1 < 2）
 const TRUST_LADDER := ["怀疑", "比较相信", "绝对可信"]
@@ -30,7 +31,7 @@ const PACK_BUDGET := 80
 const SESSION_LINES := 3
 
 var _entries: Array[Dictionary] = []   # 全部条目（卡片 + 习得），按 seq 升序
-var _sessions: Array[Dictionary] = []  # 会话摘要 [{index, rounds, gained, ended, time}]
+var _memories: Array[Dictionary] = []  # 记忆条目 [{turn, session, text, time}]（每轮一条，只追加）
 var _next_learned_seq := LEARNED_SEQ_BASE
 
 
@@ -114,6 +115,11 @@ func active_entries() -> Array[Dictionary]:
 	return out
 
 
+## 全部条目（含 voided；编辑页与写回用）。注意调用方不得原地修改。
+func entries_all() -> Array[Dictionary]:
+	return _entries
+
+
 ## 材料包用条目：active 全量；超过 PACK_BUDGET 时压缩——
 ## 有佐证链（links 指向更早条目）的合并到链首（content 保留链首、links 累计、trust 取最强）。
 func entries_for_pack() -> Array[Dictionary]:
@@ -189,73 +195,93 @@ func contradict(seq: int) -> Dictionary:
 	return {"changed": after != before, "before": before, "after": after, "cause": "矛盾"}
 
 
-# ———— 会话摘要（记忆层，确定性生成） ————
+# ———— 记忆层（每轮一条，确定性生成，只追加） ————
 
 
-## 追加一条会话摘要。index：会话序号；rounds：轮数；gained：本轮新记条数；ended：结束原因。
-func add_session_summary(index: int, rounds: int, gained: int, ended: String) -> void:
-	_sessions.append({
-		"index": index,
-		"rounds": rounds,
-		"gained": gained,
-		"ended": ended,
+## 最近 SESSION_LINES 条记忆的渲染行（材料包记忆区用）。
+func memory_lines() -> Array[String]:
+	var lines: Array[String] = []
+	var start := maxi(0, _memories.size() - SESSION_LINES)
+	for i in range(start, _memories.size()):
+		var m: Dictionary = _memories[i]
+		lines.append("· " + str(m.get("text", "")))
+	return lines
+
+
+## 已记录的记忆条数。
+func memory_count() -> int:
+	return _memories.size()
+
+
+## 记忆文本列表（编辑页用）。
+func memory_texts() -> Array[String]:
+	var out: Array[String] = []
+	for m in _memories:
+		out.append(str(m.get("text", "")))
+	return out
+
+
+## 整表替换记忆（编辑页保存；与旧文本相同的条目保留原时间戳）。
+func set_memories(texts: Array) -> void:
+	var old_times := {}
+	for m in _memories:
+		old_times[str(m.get("text", ""))] = m.get("time", "")
+	_memories.clear()
+	for raw in texts:
+		var text := str(raw).strip_edges()
+		if text.is_empty():
+			continue
+		_memories.append({
+			"text": text,
+			"time": str(old_times.get(text, Time.get_datetime_string_from_system())),
+		})
+
+
+## 追加一段整理好的记忆文本（由引擎在对话结算后调用 LLM 生成后传入）。
+## text：LLM 归纳的整段记忆表述；session：会话序号。
+func add_memory(text: String, _session: int) -> void:
+	_memories.append({
+		"text": text,
 		"time": Time.get_datetime_string_from_system(),
 	})
 
 
-## 最近 SESSION_LINES 条会话摘要的渲染行（材料包记忆区用）
-func session_lines() -> Array[String]:
-	var lines: Array[String] = []
-	var start := maxi(0, _sessions.size() - SESSION_LINES)
-	for i in range(start, _sessions.size()):
-		var s: Dictionary = _sessions[i]
-		lines.append("· 第 %d 次交谈（%s）：谈了 %d 轮，新记 %d 条，%s" % [
-			int(s.get("index", 0)),
-			str(s.get("time", "")).split(" ")[0],
-			int(s.get("rounds", 0)),
-			int(s.get("gained", 0)),
-			str(s.get("ended", "")),
-		])
-	return lines
+# ———— 持久化（人物运行时快照 user://characters/<npc_id>.json 的 journal 区） ————
 
 
-## 已记录的会话摘要条数（引擎分配下一次会话序号用）
-func session_count() -> int:
-	return _sessions.size()
+## 尝试从人物快照整体载入 journal 区（存在即接管知识日志与记忆）。
+## 返回是否接管（false = 无快照，调用方以卡面知识起步）。
+func load_snapshot(npc_id: String) -> bool:
+	var data := SnapshotStore.read_journal(npc_id)
+	if data.is_empty():
+		return false
+	_entries.clear()
+	_memories.clear()
+	var raw_entries: Variant = data.get("knowledge", [])
+	if raw_entries is Array:
+		for item in raw_entries:
+			if item is Dictionary:
+				var e: Dictionary = item
+				e["seq"] = int(e.get("seq", 0))
+				e["links"] = e.get("links", []) if e.get("links", []) is Array else []
+				_entries.append(e)
+	_entries.sort_custom(func(a, b): return int(a.get("seq", 0)) < int(b.get("seq", 0)))
+	var raw_memories: Variant = data.get("memories", [])
+	if raw_memories is Array:
+		for m in raw_memories:
+			if m is Dictionary:
+				_memories.append(m)
+	_next_learned_seq = maxi(int(data.get("next_seq", LEARNED_SEQ_BASE)), _max_entry_seq() + 1)
+	return true
 
 
-## 本段对话已新记的条目数（会话摘要用）：origin=dialogue 且 session 为当前会话
-func gained_in_session(session: int) -> int:
-	var count := 0
-	for e in _entries:
-		if str(e.get("origin", "")) == "dialogue" and int(e.get("session", 0)) == session:
-			count += 1
-	return count
-
-
-# ———— 持久化（user://journals/<npc_id>.json，只存习得条目与会话摘要） ————
-
-
-## 保存习得条目与会话摘要；卡片条目不落盘（每次从人物卡重建）。
+## 全量落盘 journal 区到人物快照（对话学习与编辑保存的统一写路径）。
 func save(npc_id: String) -> void:
-	var learned: Array[Dictionary] = []
-	for e in _entries:
-		if str(e.get("origin", "")) == "dialogue":
-			learned.append(e)
-	var data := {
-		"npc_id": npc_id,
-		"next_seq": _next_learned_seq,
-		"sessions": _sessions,
-		"entries": learned,
-	}
-	DirAccess.make_dir_recursive_absolute("user://journals")
-	var file := FileAccess.open("user://journals/%s.json" % npc_id, FileAccess.WRITE)
-	if file != null:
-		file.store_string(JSON.stringify(data, "  "))
-		file.close()
+	SnapshotStore.write_journal(npc_id, _entries, _memories, _next_learned_seq)
 
 
-## 读回习得条目与会话摘要，追加到当前日志（卡片条目之后）。
+## 旧版兼容：读回 user://journals/<npc_id>.json 的习得条目与记忆，追加到当前日志。
+## 仅在无人物快照时由 _build_journal_for 调用；该文件不再新写。
 ## 文件不存在或损坏时静默跳过（日志为空起步）。
 func load_learned(npc_id: String) -> void:
 	var path := "user://journals/%s.json" % npc_id
@@ -266,11 +292,11 @@ func load_learned(npc_id: String) -> void:
 		return
 	var data: Dictionary = parsed
 	_next_learned_seq = maxi(int(data.get("next_seq", LEARNED_SEQ_BASE)), LEARNED_SEQ_BASE)
-	var raw_sessions: Variant = data.get("sessions", [])
-	if raw_sessions is Array:
-		for s in raw_sessions:
-			if s is Dictionary:
-				_sessions.append(s)
+	var raw_memories: Variant = data.get("memories", [])
+	if raw_memories is Array:
+		for m in raw_memories:
+			if m is Dictionary:
+				_memories.append(m)
 	var raw_entries: Variant = data.get("entries", [])
 	if raw_entries is Array:
 		for item in raw_entries:
@@ -282,7 +308,44 @@ func load_learned(npc_id: String) -> void:
 	_entries.sort_custom(func(a, b): return int(a.get("seq", 0)) < int(b.get("seq", 0)))
 
 
+# ———— 编辑（编辑页保存用） ————
+
+
+## 原地更新条目内容/来源/信任（编辑页保存）。trust="已失效" 映射为 voided 状态；
+## 其余合法档恢复 active。返回条目是否存在。
+func update_entry(seq: int, content: String, speaker: String, trust: String) -> bool:
+	var e := entry(seq)
+	if e.is_empty():
+		return false
+	e["content"] = content
+	e["speaker"] = speaker
+	if trust == TRUST_VOIDED:
+		e["trust"] = TRUST_LADDER[0]
+		e["status"] = STATUS_VOIDED
+	else:
+		e["trust"] = trust if TRUST_LADDER.has(trust) else TRUST_LADDER[0]
+		e["status"] = STATUS_ACTIVE
+	return true
+
+
+## 仅保留 seq 在集合内的条目（编辑页全量保存的删除语义：未列出的即删除）。
+func retain_seqs(seqs: Dictionary) -> void:
+	var kept: Array[Dictionary] = []
+	for e in _entries:
+		if seqs.has(int(e.get("seq", 0))):
+			kept.append(e)
+	_entries = kept
+
+
 # ———— 内部 ————
+
+
+## 当前最大条目 seq（快照载入后保证习得序号不回退）。
+func _max_entry_seq() -> int:
+	var best := 0
+	for e in _entries:
+		best = maxi(best, int(e.get("seq", 0)))
+	return best
 
 
 ## 信任档位移：delta +1/-1，钳位到梯内。trust：当前档；delta：位移量。

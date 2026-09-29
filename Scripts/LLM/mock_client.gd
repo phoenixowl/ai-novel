@@ -1,6 +1,6 @@
 class_name MockClient
 extends LLMClient
-## 离线示例客户端（LLM 层）：未配置 API Key 时由 LLMService 自动启用。
+## 离线示例客户端（LLM 层）：未配置 API Key 时由 LLMController 自动启用。
 ## 按 purpose 区分请求类型（输入审查 / 对话生成），输出与真实模型完全相同的
 ## JSON 回应格式，便于在无网络、无 Key 的环境下走通全部流程与界面。
 ## 部分样本故意裹上 markdown 围栏，用于验证解析器的容错能力。
@@ -22,6 +22,11 @@ func is_offline() -> bool:
 ## 对话生成按玩家话题挑选预制样本。返回值与真实客户端同构。
 func complete(system_prompt: String, user_prompt: String, purpose := PURPOSE_DIALOGUE) -> Dictionary:
 	await get_tree().create_timer(SAMPLE_DELAY).timeout
+	if system_prompt.contains("提取器"):
+		return {"ok": true, "content": JSON.stringify({
+			"memory": "上次有个生面孔来茶馆，问起黑潮带拳手的事，我提醒他别多管闲事。",
+			"knowledge": [],
+		}), "error": ""}
 	if purpose == PURPOSE_INPUT_REVIEW:
 		return {"ok": true, "content": _review_sample(user_prompt), "error": ""}
 	var turn := _turn_from_prompt(user_prompt)

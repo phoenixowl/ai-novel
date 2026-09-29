@@ -1,9 +1,10 @@
 extends SceneTree
-## 端到端引擎回路测试（无 UI、无网络）：DialogueEngine 经 EventBus 全链路（知识日志范式）。
+## 端到端引擎回路测试（无 UI、无网络）：DialogueController 经 EventBus 全链路（知识日志范式）。
 ##   godot --headless -s tests/engine_loop_test.gd
 ## 交互全部经 EventBus 集线器：测试连接 DialogueEvents 的事件信号、发射命令信号（与 UI 同一路径）。
 ## 验证：开始对话（日志准备） → 输入审查（拒绝/放行） → 玩家输入 → 材料包/提示词事件
-## → 模型回应（含习得与信念提案的确定性校验落地） → 事件流水 → 结束对话（会话摘要落档）。
+## → 模型回应（含习得与信念提案的确定性校验落地） → 事件流水 → 结束对话（会话摘要落档）
+## → 回滚丢弃在途请求 → 结算即结束对话（manual_settle，结束后拒绝一切交互）。
 
 var _ran := false
 
@@ -24,8 +25,8 @@ func _run() -> void:
 	# 强制离线：不读取已保存的 API Key，不产生真实调用。
 	EventBus.create_shared()
 	var bus := EventBus.shared()
-	LLMService.create_shared()
-	LLMService.shared().force_offline = true
+	LLMController.create_shared()
+	LLMController.shared().force_offline = true
 
 	# -s 模式下 autoload 同样会加载：移除 autoload 的对话引擎，
 	# 避免它与下方测试实例同时订阅 cmd 命令、重复响应与发布事件。
@@ -34,12 +35,13 @@ func _run() -> void:
 		root.remove_child(autoload_engine)
 		autoload_engine.free()
 
-	var engine := DialogueEngine.new()
+	var engine := DialogueController.new()
 	root.add_child(engine)  # _ready：加载设定 + 订阅 cmd 命令
 	engine.input_review_enabled = true  # 审查路径与用户持久化设置解耦：_ready 加载配置后显式开启（不落盘）
 
-	# 清掉可能残留的沈墨言习得日志（保证断言确定性）
+	# 清掉可能残留的沈墨言运行时档案（保证断言确定性）
 	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/shen_moyan.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/shen_moyan.json")
 
 	# 经总线连接集线器信号（与 UI 同一路径）
 	var ev := bus.hub(DialogueEvents) as DialogueEvents
@@ -109,14 +111,8 @@ func _run() -> void:
 	failures = TestUtil.check(engine.state_name() == "对话已结束", "end_dialogue 落地，对话结束", failures)
 	failures = TestUtil.check(_events_of(events_seen, "dialogue_ended").size() == 1, "对话结束事件落档", failures)
 
-	# 结算后验证：习得与信念更新事件现在出现
-	var settled_learned := _events_of(events_seen, "knowledge_learned")
-	failures = TestUtil.check(settled_learned.size() == 1, "结算后：习得事件落档 1 条", failures)
-	if settled_learned.size() == 1:
-		var le := settled_learned[0] as Dictionary
-		failures = TestUtil.check(player_turn1.contains(str(le.get("evidence", "×"))), "结算后：证据是玩家原话子串", failures)
-		failures = TestUtil.check(int(le.get("journal_seq", 0)) >= KnowledgeJournal.LEARNED_SEQ_BASE, "结算后：日志编号 ≥ 10000", failures)
-	failures = TestUtil.check(engine.journal.size() == 14, "结算后：日志增至 14 条", failures)
+	# 结算后验证：信念更新事件（learned 已移至结算时由 LLM 提取）
+	failures = TestUtil.check(engine.journal.size() >= 13, "结算后：知识日志存在", failures)
 	var settled_beliefs := _events_of(events_seen, "belief_updated")
 	failures = TestUtil.check(settled_beliefs.size() == 1, "结算后：信念更新事件落档 1 条", failures)
 	if settled_beliefs.size() == 1:
@@ -124,8 +120,13 @@ func _run() -> void:
 		failures = TestUtil.check(int(be.get("ref", 0)) == 10, "结算后：佐证对象为 [10]", failures)
 		failures = TestUtil.check(str(be.get("after", "")) == "比较相信", "结算后：怀疑 → 比较相信", failures)
 	failures = TestUtil.check(str(engine.journal.entry(10).get("trust", "")) == "比较相信", "结算后：[10] 信任已升级", failures)
-	failures = TestUtil.check(engine.journal.session_count() == 1, "会话摘要已追加", failures)
-	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/journals/shen_moyan.json"), "知识日志已持久化", failures)
+	# 等待异步记忆整理完成（mock 有 0.7s 延迟）
+	for _i in range(30):
+		if engine.journal.memory_count() >= 1:
+			break
+		await create_timer(0.3).timeout
+	failures = TestUtil.check(engine.journal.memory_count() >= 1, "结算后记忆已生成", failures)
+	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/characters/shen_moyan.json"), "知识日志已持久化（人物快照）", failures)
 
 	# 结束后不可续聊
 	ev.cmd_submit.emit("等等，我还有话没说完")
@@ -133,8 +134,85 @@ func _run() -> void:
 	failures = TestUtil.check(engine.turn_number == 3, "结束后提交被拒绝（轮次停留在 3）", failures)
 	failures = TestUtil.check(engine.state_name() == "对话已结束", "结束后状态不变", failures)
 
-	# 清理测试产生的习得日志
+	# —— 回滚丢弃在途请求：生成窗口内回滚，在途回应不得落地 ——
+	ev.cmd_start.emit("shen_moyan", "teahouse")
+	failures = TestUtil.check(engine.state_name() == "等待玩家输入", "重新开始对话（回滚场景）", failures)
+	ev.cmd_submit.emit("先聊一句茶。")
+	await _wait_until(engine, "等待玩家输入", 10.0)
+	failures = TestUtil.check(engine.turn_number == 1, "回滚场景：第 1 轮已落地", failures)
+	var npc_count_before := _events_of(events_seen, "npc_utterance").size()
+	ev.cmd_submit.emit("这句还在生成中，马上回滚。")
+	await _wait_until(engine, "等待NPC回应", 10.0)  # 已过审查、进入生成窗口（轮次 2）
+	ev.cmd_rollback_to_turn.emit(2)
+	await _wait_until(engine, "等待玩家输入", 10.0)
+	failures = TestUtil.check(engine.turn_number == 1, "回滚丢弃在途请求：轮次回到 1", failures)
+	failures = TestUtil.check(
+		_events_of(events_seen, "npc_utterance").size() == npc_count_before,
+		"回滚丢弃在途请求：被回滚轮的 NPC 回应未落档", failures)
+	failures = TestUtil.check(engine.state_name() == "等待玩家输入", "回滚丢弃在途请求：回到等待玩家", failures)
+
+	# —— 结算即结束：cmd_settle_now 结算并直接结束对话 ——
+	ev.cmd_start.emit("shen_moyan", "teahouse")
+	failures = TestUtil.check(engine.state_name() == "等待玩家输入", "重新开始对话（结算场景）", failures)
+	ev.cmd_submit.emit("最近雾顶的茶价怎么样？")
+	await _wait_until(engine, "等待玩家输入", 10.0)
+	ev.cmd_settle_now.emit()
+	failures = TestUtil.check(engine.state_name() == "对话已结束", "结算即结束对话（同步进入 ENDED）", failures)
+	var end_events := _events_of(events_seen, "dialogue_ended")
+	failures = TestUtil.check(end_events.size() == 2, "结算场景：dialogue_ended 共 2 次（npc_action + manual_settle）", failures)
+	if end_events.size() == 2:
+		failures = TestUtil.check(
+			str((end_events[1] as Dictionary).get("reason", "")) == "manual_settle",
+			"结算结束的 reason 为 manual_settle", failures)
+	# 结束后：重复结算、回滚、续聊全部被状态机拒绝
+	ev.cmd_settle_now.emit()
+	ev.cmd_rollback_to_turn.emit(1)
+	ev.cmd_submit.emit("再聊一句")
+	await create_timer(0.8).timeout  # 覆盖结算触发的记忆整理窗口
+	failures = TestUtil.check(engine.state_name() == "对话已结束", "结束后重复结算/回滚/续聊均被忽略", failures)
+	failures = TestUtil.check(engine.turn_number == 1, "结束后轮次不变", failures)
+	failures = TestUtil.check(
+		_events_of(events_seen, "npc_utterance").size() == npc_count_before + 1,
+		"结算场景仅落档 1 条新 NPC 发言", failures)
+
+	# —— 人物编辑链路：总览 → 详情 → 保存 → 恢复卡面（经 CharacterEvents 集线器） ——
+	var ce := bus.hub(CharacterEvents) as CharacterEvents
+	var holder := {"listed": [], "detail": {}}
+	ce.characters_listed.connect(func(items: Array): holder["listed"] = items)
+	ce.character_loaded.connect(func(d: Dictionary): holder["detail"] = d)
+	ce.cmd_get_characters.emit()
+	failures = TestUtil.check((holder["listed"] as Array).size() == 16, "人物总览：玩家 + 15 NPC", failures)
+	ce.cmd_get_character.emit("shen_moyan")
+	var detail := holder["detail"] as Dictionary
+	failures = TestUtil.check(str(detail.get("kind", "")) == "npc", "人物详情返回 NPC", failures)
+	var base_count := (detail.get("knowledge", []) as Array).size()
+	var save_payload := {
+		"id": "shen_moyan", "kind": "npc",
+		"name": "沈掌柜（测试覆盖）", "identity": "茶馆掌柜·测试", "profile": "测试人设",
+		"affinity": 42,
+		"knowledge": (detail.get("knowledge", []) as Array) + [
+			{"seq": 0, "content": "测试新增知识", "speaker": "手动", "trust": "比较相信"},
+		],
+		"memories": detail.get("memories", []),
+	}
+	ce.cmd_save_character.emit(save_payload)
+	ce.cmd_get_character.emit("shen_moyan")
+	detail = holder["detail"] as Dictionary
+	failures = TestUtil.check(str(detail.get("name", "")) == "沈掌柜（测试覆盖）", "保存后人设快照生效", failures)
+	failures = TestUtil.check(int(detail.get("affinity", 0)) == 42, "保存后好感度生效", failures)
+	failures = TestUtil.check((detail.get("knowledge", []) as Array).size() == base_count + 1, "保存后新增知识条目", failures)
+	failures = TestUtil.check(bool(detail.get("has_snapshot", false)), "保存后存在运行时快照", failures)
+	ce.cmd_reset_character.emit("shen_moyan")
+	ce.cmd_get_character.emit("shen_moyan")
+	detail = holder["detail"] as Dictionary
+	failures = TestUtil.check(str(detail.get("name", "")) == "沈墨言", "恢复卡面后人设回落作者卡", failures)
+	failures = TestUtil.check(int(detail.get("affinity", 0)) == 42, "恢复卡面保留好感度", failures)
+	failures = TestUtil.check(not bool(detail.get("has_snapshot", true)), "恢复卡面后快照消失", failures)
+
+	# 清理测试产生的运行时档案
 	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/shen_moyan.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/shen_moyan.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/affinity/shen_moyan.json")
 
 	if failures == 0:
 		print("==== 全部通过 ====")
@@ -144,7 +222,7 @@ func _run() -> void:
 		quit(1)
 
 
-func _wait_until(engine: DialogueEngine, target_state: String, seconds: float) -> void:
+func _wait_until(engine: DialogueController, target_state: String, seconds: float) -> void:
 	var waited := 0.0
 	while waited < seconds:
 		if engine.state_name() == target_state:

@@ -1,6 +1,6 @@
 class_name LlmEvents
 extends RefCounted
-## LLM 域事件契约（LLM 层）：UI 与 LLMService 之间的全部交互信号。
+## LLM 域事件契约（LLM 层）：UI 与 LLMController 之间的全部交互信号。
 ## 本文件只声明信号，不含任何逻辑——EventBus（autoload "Events"）按脚本单例化
 ## 并分发本集线器，自身不感知这些信号的存在。
 

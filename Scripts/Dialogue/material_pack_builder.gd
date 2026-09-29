@@ -47,6 +47,8 @@ static func build(
 		knowledge_entries: Array[Dictionary],
 		turn_number: int,
 		max_turns: int,
+		affinity := 0,
+		player_info := {},
 ) -> MaterialPack:
 	var pack := MaterialPack.new()
 	pack.turn_number = turn_number
@@ -67,15 +69,18 @@ static func build(
 	# 素材包·知识日志：全量注入（引擎侧由 KnowledgeJournal.entries_for_pack() 给出）
 	pack.knowledge_entries = knowledge_entries.duplicate(true)
 
+	# 素材包·玩家信息（末尾强调段用）
+	pack.player_info = player_info.duplicate(true)
+
 	# 素材包·记忆：本段对话已确认的历史 + 跨对话摘要
 	pack.cross_dialogue_summary = cross_summary
 	pack.dialogue_history = confirmed_history.duplicate(true)
 
 	# 素材包·自身状态：阶段一用心情基准；由近期对话结果推导属阶段二
 	pack.npc_state = {
-		"mood": npc.mood_baseline,
-		"tone": npc.speech_style,
-		"mood_note": "阶段一使用心情基准（动态心情推导属阶段二）",
+		"mood": AffinityStore.tier_label(affinity),
+		"tone": npc.profile,
+		"affinity": affinity,
 	}
 
 	# 行动清单

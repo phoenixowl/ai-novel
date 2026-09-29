@@ -16,6 +16,7 @@ var scene: SceneCard
 var scene_materials := {}  # environment / atmosphere / opening_situation
 var player_utterance := ""  # 玩家这句话（原样引用，不改写）
 var knowledge_entries: Array[Dictionary] = []  # 本轮展示的知识日志条目（{seq,content,speaker,trust,status,…}）
+var player_info := {}  # 玩家信息 {name, identity, appearance}（末尾强调段用）
 var cross_dialogue_summary := ""  # 背景摘要（作者写的跨对话记忆，可为空）
 var session_lines: Array[String] = []  # 最近会话摘要（知识日志确定性生成）
 var dialogue_history: Array = []  # 本段对话已确认轮次的事件（Dictionary 列表）

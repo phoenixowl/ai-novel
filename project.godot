@@ -18,8 +18,9 @@ config/icon="res://icon.svg"
 [autoload]
 
 Events="*res://Scripts/Common/event_bus.gd"
-LLM="*res://Scripts/LLM/llm_service.gd"
-Dialogue="*res://Scripts/Dialogue/dialogue_engine.gd"
+LLM="*res://Scripts/LLM/llm_controller.gd"
+Characters="*res://Scripts/Lore/character_controller.gd"
+Dialogue="*res://Scripts/Dialogue/dialogue_controller.gd"
 
 [display]
 

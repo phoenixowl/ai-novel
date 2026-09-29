@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3]
 
-[ext_resource type="Script" path="res://Scripts/UI/dialogue_screen_ui.gd" id="1_dialogue_ui"]
+[ext_resource type="Script" path="res://Scripts/UI/dialogue_screen.gd" id="1_dialogue_ui"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dialogue"]
 content_margin_left = 12.0
@@ -78,6 +78,12 @@ custom_minimum_size = Vector2(140, 0)
 unique_name_in_owner = true
 layout_mode = 2
 text = "开始新对话"
+
+[node name="SettleBtn" type="Button" parent="RootMargin/RootBox/HeaderBox"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "结算并结束本段对话：写入习得与记忆，此后不可续聊"
+text = "结算对话"
 
 [node name="ResetMemBtn" type="Button" parent="RootMargin/RootBox/HeaderBox"]
 unique_name_in_owner = true
@@ -191,49 +197,26 @@ text = "（发送一句话后，这里显示本轮组装的材料包）"
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="SysHeader" type="HBoxContainer" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
+[node name="PromptHeader" type="HBoxContainer" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="SysTitle" type="Label" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/SysHeader"]
+[node name="PromptTitle" type="Label" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/PromptHeader"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "静态规则层（System，按 NPC 缓存）"
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+text = "完整提示词（System 静态规则层 + User 本轮材料层）"
 
-[node name="CopySysBtn" type="Button" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/SysHeader"]
+[node name="CopyPromptBtn" type="Button" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/PromptHeader"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "复制"
+text = "复制完整提示词"
 
-[node name="PromptSystemView" type="RichTextLabel" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-custom_minimum_size = Vector2(0, 250)
-bbcode_enabled = true
-scroll_following = true
-text = "（等待对话开始）"
-
-[node name="UserHeader" type="HBoxContainer" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="UserTitle" type="Label" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/UserHeader"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "本轮材料层（User，随材料包变化）"
-
-[node name="CopyUserBtn" type="Button" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/UserHeader"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "复制"
-
-[node name="PromptUserView" type="RichTextLabel" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
+[node name="PromptFullView" type="RichTextLabel" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-custom_minimum_size = Vector2(0, 250)
 bbcode_enabled = true
 scroll_following = true
 text = "（等待对话开始）"
@@ -251,7 +234,7 @@ text = "（等待模型回应）"
 [connection signal="pressed" from="RootMargin/RootBox/HeaderBox/StartBtn" to="." method="_on_start_pressed"]
 [connection signal="toggled" from="RootMargin/RootBox/HeaderBox/SidebarBtn" to="." method="_on_sidebar_toggled"]
 [connection signal="pressed" from="RootMargin/RootBox/HeaderBox/ResetMemBtn" to="." method="_on_reset_memory_pressed"]
+[connection signal="pressed" from="RootMargin/RootBox/HeaderBox/SettleBtn" to="." method="_on_settle_pressed"]
 [connection signal="text_submitted" from="RootMargin/RootBox/Split/DialoguePanel/DialogueBox/InputRow/PlayerInput" to="." method="_on_input_submitted"]
 [connection signal="pressed" from="RootMargin/RootBox/Split/DialoguePanel/DialogueBox/InputRow/SendBtn" to="." method="_on_send_pressed"]
-[connection signal="pressed" from="RootMargin/RootBox/Split/DebugSidebar/PromptBox/SysHeader/CopySysBtn" to="." method="_copy_system"]
-[connection signal="pressed" from="RootMargin/RootBox/Split/DebugSidebar/PromptBox/UserHeader/CopyUserBtn" to="." method="_copy_user"]
+[connection signal="pressed" from="RootMargin/RootBox/Split/DebugSidebar/PromptBox/PromptHeader/CopyPromptBtn" to="." method="_copy_prompt"]

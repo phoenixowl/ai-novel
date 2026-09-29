@@ -1,0 +1,254 @@
+[gd_scene format=3 uid="uid://8lxdqwbn2jwq"]
+
+[ext_resource type="Script" uid="uid://dscox0i5hiumn" path="res://Scripts/UI/character_edit_screen.gd" id="1_edit_ui"]
+
+[node name="CharacterEditScreen" type="Control" unique_id=907435554]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_edit_ui")
+
+[node name="RootMargin" type="MarginContainer" parent="." unique_id=1215737317]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="RootBox" type="VBoxContainer" parent="RootMargin" unique_id=1966098892]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HeaderBox" type="HBoxContainer" parent="RootMargin/RootBox" unique_id=1950758007]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="BackBtn" type="Button" parent="RootMargin/RootBox/HeaderBox" unique_id=1561573788]
+unique_name_in_owner = true
+layout_mode = 2
+text = "← 返回"
+
+[node name="TitleLabel" type="Label" parent="RootMargin/RootBox/HeaderBox" unique_id=51369354]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "编辑 · —"
+
+[node name="StatusLabel" type="Label" parent="RootMargin/RootBox/HeaderBox" unique_id=1285533418]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+
+[node name="HSeparator" type="HSeparator" parent="RootMargin/RootBox" unique_id=971770569]
+layout_mode = 2
+
+[node name="Scroll" type="ScrollContainer" parent="RootMargin/RootBox" unique_id=1028791418]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="FormBox" type="VBoxContainer" parent="RootMargin/RootBox/Scroll" unique_id=1604512341]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="PersonaBox" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox" unique_id=454604046]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="PersonaCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=1383888530]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
+theme_override_font_sizes/font_size = 14
+text = "人设（保存后写入运行时快照）"
+
+[node name="NameRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=1076917652]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="NameCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox/NameRow" unique_id=312446023]
+custom_minimum_size = Vector2(48, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+text = "称呼"
+
+[node name="NameEdit" type="LineEdit" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox/NameRow" unique_id=269559829]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "名字（对话中的称呼）"
+
+[node name="IdentityCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=894988732]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+text = "身份"
+
+[node name="IdentityEdit" type="LineEdit" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=479955563]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "世界内身份，如：翡翠市商会理事、流浪剑客"
+
+[node name="ProfileCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=2052051018]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+text = "人设"
+
+[node name="ProfileEdit" type="TextEdit" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=1657378569]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 2
+placeholder_text = "性格、说话方式、常态等人物设定"
+wrap_mode = 1
+
+[node name="NpcOnlyBox" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox" unique_id=1608818167]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AffinityRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=139853657]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="AffinityCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/AffinityRow" unique_id=829156980]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
+theme_override_font_sizes/font_size = 14
+text = "好感度"
+
+[node name="AffinitySlider" type="HSlider" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/AffinityRow" unique_id=1860456670]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+min_value = -100.0
+
+[node name="AffinityValue" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/AffinityRow" unique_id=1553395406]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(130, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+text = "0（中性）"
+
+[node name="HSep1" type="HSeparator" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1564533384]
+layout_mode = 2
+
+[node name="KnowledgeCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1296595060]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
+theme_override_font_sizes/font_size = 14
+text = "知识日志（保存时按此列表整表生效，未列出的条目将删除）"
+
+[node name="KnowledgeRows" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1614933228]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="KnowledgeAddRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1907530847]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="NewKnowledgeEdit" type="LineEdit" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/KnowledgeAddRow" unique_id=1300469136]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "新知识内容（这条 NPC 会以“怀疑”档记住）"
+
+[node name="NewKnowledgeSource" type="LineEdit" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/KnowledgeAddRow" unique_id=352291876]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 0)
+layout_mode = 2
+placeholder_text = "来源"
+
+[node name="NewKnowledgeTrust" type="OptionButton" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/KnowledgeAddRow" unique_id=1645895529]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
+
+[node name="AddKnowledgeBtn" type="Button" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/KnowledgeAddRow" unique_id=1694906725]
+unique_name_in_owner = true
+layout_mode = 2
+text = "添加"
+
+[node name="HSep2" type="HSeparator" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1645687612]
+layout_mode = 2
+
+[node name="MemoryCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1803951561]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
+theme_override_font_sizes/font_size = 14
+text = "记忆（对话经历的第一人称归纳，注入材料包记忆区）"
+
+[node name="MemoryRows" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=169790093]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="MemoryAddRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=490227212]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="NewMemoryEdit" type="LineEdit" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/MemoryAddRow" unique_id=1418255779]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "新记忆，如：上次有个生面孔问起黑潮带的事"
+
+[node name="AddMemoryBtn" type="Button" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/MemoryAddRow" unique_id=107277235]
+unique_name_in_owner = true
+layout_mode = 2
+text = "添加记忆"
+
+[node name="BottomHSeparator" type="HSeparator" parent="RootMargin/RootBox" unique_id=601149765]
+layout_mode = 2
+
+[node name="BottomBox" type="HBoxContainer" parent="RootMargin/RootBox" unique_id=1815143149]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="SaveBtn" type="Button" parent="RootMargin/RootBox/BottomBox" unique_id=879421155]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 0)
+layout_mode = 2
+tooltip_text = "把表单当前内容写入运行时快照并刷新"
+text = "保存并刷新"
+
+[node name="ResetBtn" type="Button" parent="RootMargin/RootBox/BottomBox" unique_id=563420687]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "删除该人物的运行时快照，回落作者卡面（好感度保留）"
+text = "恢复卡面"
+
+[node name="WriteBackBtn" type="Button" parent="RootMargin/RootBox/BottomBox" unique_id=1375820794]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "把当前运行时状态反向写入 res://settings/ 作者卡面（仅 Godot 编辑器环境可行）"
+text = "写回作者卡面"
+
+[node name="Spring" type="Control" parent="RootMargin/RootBox/BottomBox" unique_id=1468185097]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TalkBtn" type="Button" parent="RootMargin/RootBox/BottomBox" unique_id=306417204]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "跳转对话屏并自动与该人物开始对话（未保存的修改不会生效）"
+text = "对话"
+
+[connection signal="pressed" from="RootMargin/RootBox/HeaderBox/BackBtn" to="." method="_on_back_pressed"]
+[connection signal="value_changed" from="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/AffinityRow/AffinitySlider" to="." method="_on_affinity_slider_value_changed"]
+[connection signal="pressed" from="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/KnowledgeAddRow/AddKnowledgeBtn" to="." method="_on_add_knowledge_pressed"]
+[connection signal="pressed" from="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/MemoryAddRow/AddMemoryBtn" to="." method="_on_add_memory_pressed"]
+[connection signal="pressed" from="RootMargin/RootBox/BottomBox/SaveBtn" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="RootMargin/RootBox/BottomBox/ResetBtn" to="." method="_on_reset_pressed"]
+[connection signal="pressed" from="RootMargin/RootBox/BottomBox/WriteBackBtn" to="." method="_on_write_back_pressed"]
+[connection signal="pressed" from="RootMargin/RootBox/BottomBox/TalkBtn" to="." method="_on_talk_pressed"]

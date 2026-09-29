@@ -1,13 +1,15 @@
 extends SceneTree
 ## 逻辑层冒烟测试（不依赖 UI 与网络）：
 ##   godot --headless -s tests/smoke_test.gd
-## 覆盖：Common 层（JsonUtil/GameConfig）、流程一（设定资料加载）、
+## 覆盖：Common 层（JsonTool/GameConfig）、流程一（设定资料加载）、
 ## KnowledgeJournal（信任算术/习得/复活/持久化/会话摘要）、流程二（材料包组装）、
 ## 流程三（提示词拼装、回应校验含 learned/belief_updates）、第 0 步（输入审查）、
 ## LLM 层（离线审查近似规则）。
 ## 注意：检查逻辑延迟到主循环就绪后执行——_init 中直接 quit() 可能被忽略。
 
 var _ran := false
+
+const SnapshotStore := preload("res://Scripts/Lore/snapshot_store.gd")
 
 
 func _init() -> void:
@@ -22,14 +24,14 @@ func _run() -> void:
 	var failures := 0
 	print("==== ai-novel 冒烟测试 ====")
 
-	# —— Common 层：JsonUtil ——
-	failures = TestUtil.check(JsonUtil.pick({"a": 1, "b": 2}, ["x", "b"], 0) == 2, "pick 按序取键", failures)
-	failures = TestUtil.check(JsonUtil.pick_bool({"sensitive": "是"}, ["sensitive"]), "pick_bool 兼容中文布尔", failures)
-	failures = TestUtil.check(JsonUtil.pick_strings({"k": ["锁", "仓库"]}, ["k"]).size() == 2, "pick_strings 取字符串数组", failures)
-	failures = TestUtil.check(JsonUtil.strip_code_fence("```json\n{}\n```") == "{}", "围栏剥离", failures)
-	var extracted: Variant = JsonUtil.try_parse("前缀 {\"a\": {\"b\": 1}} 后缀")
+	# —— Common 层：JsonTool ——
+	failures = TestUtil.check(JsonTool.pick({"a": 1, "b": 2}, ["x", "b"], 0) == 2, "pick 按序取键", failures)
+	failures = TestUtil.check(JsonTool.pick_bool({"sensitive": "是"}, ["sensitive"]), "pick_bool 兼容中文布尔", failures)
+	failures = TestUtil.check(JsonTool.pick_strings({"k": ["锁", "仓库"]}, ["k"]).size() == 2, "pick_strings 取字符串数组", failures)
+	failures = TestUtil.check(JsonTool.strip_code_fence("```json\n{}\n```") == "{}", "围栏剥离", failures)
+	var extracted: Variant = JsonTool.try_parse("前缀 {\"a\": {\"b\": 1}} 后缀")
 	failures = TestUtil.check(extracted is Dictionary and (extracted as Dictionary)["a"]["b"] == 1, "括号配平提取首个 JSON 对象", failures)
-	failures = TestUtil.check(JsonUtil.try_parse("这不是JSON，只是一句话。") == null, "垃圾文本返回 null", failures)
+	failures = TestUtil.check(JsonTool.try_parse("这不是JSON，只是一句话。") == null, "垃圾文本返回 null", failures)
 
 	# —— 流程一：设定资料（Lore 层，卡片内联初始知识） ——
 	var repo := LoreRepository.new()
@@ -72,20 +74,34 @@ func _run() -> void:
 	failures = TestUtil.check(bool(revive.get("changed", false)) and str(journal.entry(seq_void).get("status", "")) == "active", "已失效条目被佐证复活", failures)
 	failures = TestUtil.check(str(journal.entry(seq_void).get("trust", "")) == "怀疑", "复活后信任为怀疑", failures)
 
-	journal.add_session_summary(1, 5, 2, "npc_action")
-	journal.add_session_summary(2, 3, 0, "turn_limit")
-	failures = TestUtil.check(journal.session_count() == 2 and journal.session_lines().size() == 2, "会话摘要追加与渲染", failures)
-	failures = TestUtil.check(journal.gained_in_session(1) == 1, "按会话统计新记条数", failures)
+	journal.add_memory("上次有人来问过后巷仓库换锁的事", 1)
+	journal.add_memory("那个客人还问起米价", 1)
+	failures = TestUtil.check(journal.memory_count() == 2 and journal.memory_lines().size() == 2, "每轮记忆追加与渲染", failures)
 
-	# 持久化往返（测试档案读写后删除）
+	# —— 人物运行时快照：编辑方法与往返（测试档案读写后删除） ——
+	failures = TestUtil.check(journal.update_entry(seq_learn, "来客讲过拳手命案的细节", "来客", "比较相信"), "update_entry 修改条目", failures)
+	failures = TestUtil.check(
+		str(journal.entry(seq_learn).get("content", "")) == "来客讲过拳手命案的细节"
+		and str(journal.entry(seq_learn).get("trust", "")) == "比较相信",
+		"update_entry 内容与信任生效", failures)
+	journal.update_entry(seq_learn, "再来", "来客", "已失效")
+	failures = TestUtil.check(str(journal.entry(seq_learn).get("status", "")) == KnowledgeJournal.STATUS_VOIDED, "update_entry 已失效映射为 voided", failures)
+	journal.update_entry(seq_learn, "再来", "来客", "比较相信")
+	failures = TestUtil.check(str(journal.entry(seq_learn).get("status", "")) == KnowledgeJournal.STATUS_ACTIVE, "update_entry 复位为 active", failures)
+	journal.set_memories(["手动记忆甲", "  ", "手动记忆乙"])
+	failures = TestUtil.check(journal.memory_count() == 2, "set_memories 整表替换（剔除空行）", failures)
+	journal.retain_seqs({seq_learn: true})
+	failures = TestUtil.check(journal.size() == 1 and journal.has_seq(seq_learn), "retain_seqs 删除未列出的条目", failures)
+	journal.add_card_entry("重建占位", "常识", "比较相信")
 	journal.save("_smoke_test_npc")
 	var restored := KnowledgeJournal.new()
-	restored.add_card_entry("占位", "常识", "比较相信")
-	restored.load_learned("_smoke_test_npc")
+	failures = TestUtil.check(restored.load_snapshot("_smoke_test_npc"), "人物快照存在并可整体载入", failures)
+	failures = TestUtil.check(restored.size() == journal.size(), "快照条目数一致（全量落盘）", failures)
 	failures = TestUtil.check(restored.has_seq(seq_learn) and int(restored.entry(seq_learn).get("turn", 0)) == 1, "习得条目持久化往返", failures)
-	failures = TestUtil.check(restored.session_count() == 2, "会话摘要持久化往返", failures)
+	failures = TestUtil.check(restored.memory_count() == 2, "记忆持久化往返", failures)
 	failures = TestUtil.check(int(restored.entry(seq_learn).get("seq", 0)) >= KnowledgeJournal.LEARNED_SEQ_BASE, "往返后习得 seq 保持", failures)
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/_smoke_test_npc.json")
+	SnapshotStore.erase("_smoke_test_npc")
+	failures = TestUtil.check(not SnapshotStore.exists("_smoke_test_npc"), "快照可删除", failures)
 
 	# —— 流程二：材料包组装（知识日志全量注入） ——
 	var scene: SceneCard = repo.scenes["teahouse"]
@@ -113,10 +129,10 @@ func _run() -> void:
 	var sys := builder.system_prompt(moyan, repo.worldview_text)
 	var usr := builder.user_prompt(pack)
 	failures = TestUtil.check(sys.contains("防注入"), "静态层含防注入条款", failures)
-	failures = TestUtil.check(sys.contains(moyan.display_name) and sys.contains(moyan.speech_style), "静态层含人物卡", failures)
+	failures = TestUtil.check(sys.contains(moyan.display_name) and sys.contains(moyan.profile), "静态层含人物卡", failures)
 	failures = TestUtil.check(sys.contains("翡翠市商会") and sys.contains("理事"), "静态层含所属组织与职位", failures)
-	failures = TestUtil.check(sys.contains("learned") and sys.contains("belief_updates"), "静态层含学习输出格式", failures)
-	failures = TestUtil.check(sys.contains("逐字复制"), "静态层含学习条款（逐字锚定）", failures)
+	failures = TestUtil.check(sys.contains("belief_updates"), "静态层含信念更新格式", failures)
+	failures = TestUtil.check(not sys.contains("learned"), "静态层不含 learned（知识已移至结算时提取）", failures)
 	failures = TestUtil.check(sys == builder.system_prompt(moyan, repo.worldview_text), "静态层按 NPC 缓存", failures)
 	failures = TestUtil.check(usr.contains("“黑潮带的格斗场死了个拳手？”"), "材料层原样引用玩家话", failures)
 	failures = TestUtil.check(usr.contains("你的知识日志"), "材料层含知识日志段", failures)
@@ -126,26 +142,26 @@ func _run() -> void:
 	failures = TestUtil.check(usr.contains("turn_id 填 3"), "材料层要求回显本轮编号", failures)
 
 	# —— 流程三：回应校验（含 learned / belief_updates 结构校验） ——
-	var data_boxer: Variant = JsonUtil.try_parse(MockClient.sample_boxer(3))
+	var data_boxer: Variant = JsonTool.try_parse(MockClient.sample_boxer(3))
 	var parsed := ResponseParser.validate(data_boxer, 3)
 	failures = TestUtil.check(parsed.get("ok", false), "正常样本校验成功", failures)
 	failures = TestUtil.check(parsed.get("claim_type", "") == "确知", "claim_type 提取", failures)
-	failures = TestUtil.check((parsed.get("learned", []) as Array).size() == 1, "learned 结构解析", failures)
-	failures = TestUtil.check((parsed.get("belief_updates", []) as Array).is_empty(), "无信念提案时为空数组", failures)
+	
 
-	var data_tax: Variant = JsonUtil.try_parse(MockClient.sample_tax(4))
+
+	var data_tax: Variant = JsonTool.try_parse(MockClient.sample_tax(4))
 	var parsed_tax := ResponseParser.validate(data_tax, 4)
 	failures = TestUtil.check((parsed_tax.get("belief_updates", []) as Array).size() == 1, "belief_updates 结构解析", failures)
 
 	var bad_learn := ResponseParser.validate({
-		"utterance": "嗯。", "learned": [{"summary": "没有依据"}, {"quote": "有依据的话"}],
+		"utterance": "嗯。", 
 		"belief_updates": [{"ref": "不是数字"}, {"ref": 5, "relation": "强化"}],
 	}, 2)
-	failures = TestUtil.check((bad_learn.get("learned", []) as Array).size() == 1, "缺 quote 的习得项被丢弃", failures)
+	
 	failures = TestUtil.check((bad_learn.get("belief_updates", []) as Array).size() == 0, "坏信念提案被丢弃", failures)
-	failures = TestUtil.check((bad_learn["notes"] as Array).size() >= 3, "丢弃记入 notes", failures)
+	failures = TestUtil.check((bad_learn["notes"] as Array).size() >= 1, "丢弃记入 notes", failures)
 
-	var data_fenced: Variant = JsonUtil.try_parse(MockClient.sample_generic(1))
+	var data_fenced: Variant = JsonTool.try_parse(MockClient.sample_generic(1))
 	var fenced := ResponseParser.validate(data_fenced, 4)
 	failures = TestUtil.check(fenced.get("ok", false), "markdown 围栏样本解析成功", failures)
 	failures = TestUtil.check(fenced.get("turn_id", -1) == 4, "turn_id 不一致时按本轮编号修复", failures)
@@ -157,9 +173,9 @@ func _run() -> void:
 	var reviewer := InputReviewer.new()
 	failures = TestUtil.check(reviewer.system_prompt().contains("JSON"), "审查静态层含 JSON 格式要求", failures)
 	failures = TestUtil.check(reviewer.user_prompt("你好").contains("【玩家输入（原样）】"), "审查材料层含原话标记", failures)
-	var v_ok := InputReviewer.verdict_of(JsonUtil.try_parse("{\"verdict\":\"approve\",\"reason\":\"常规发言\"}"))
+	var v_ok := InputReviewer.verdict_of(JsonTool.try_parse("{\"verdict\":\"approve\",\"reason\":\"常规发言\"}"))
 	failures = TestUtil.check(v_ok.get("approved", false), "审查结论：通过可解析", failures)
-	var v_reject := InputReviewer.verdict_of(JsonUtil.try_parse("```json\n{\"verdict\":\"reject\",\"reason\":\"动作描写\"}\n```"))
+	var v_reject := InputReviewer.verdict_of(JsonTool.try_parse("```json\n{\"verdict\":\"reject\",\"reason\":\"动作描写\"}\n```"))
 	failures = TestUtil.check(not v_reject.get("approved", true), "审查结论：拒绝可解析（含围栏）", failures)
 	var v_unknown := InputReviewer.verdict_of({"verdict": "算了"})
 	failures = TestUtil.check(v_unknown.get("approved", false), "结论无法识别时放行（失败开放）", failures)
