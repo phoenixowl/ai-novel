@@ -74,6 +74,33 @@ text = "模型"
 unique_name_in_owner = true
 layout_mode = 2
 
+[node name="MaxTokensCaption" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "最大输出 Token（单次回应的长度上限；回应被截断时可调大，保存后生效）"
+
+[node name="MaxTokensRow" type="HBoxContainer" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="MaxTokensSpin" type="SpinBox" parent="SettingsCenter/SettingsPanel/SettingsBox/MaxTokensRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 0)
+layout_mode = 2
+max_value = 8192.0
+min_value = 256.0
+step = 64.0
+value = 3072.0
+
+[node name="MaxTokensHint" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox/MaxTokensRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "范围 256–8192"
+
+
 [node name="TestRow" type="HBoxContainer" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1699692631]
 layout_mode = 2
 theme_override_constants/separation = 8
@@ -93,10 +120,6 @@ text = " "
 [node name="SettingsHSeparator2" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=101527206]
 layout_mode = 2
 
-[node name="ReviewRow" type="HBoxContainer" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=1213159880]
-layout_mode = 2
-theme_override_constants/separation = 10
-
 [node name="ReviewToggle" type="CheckButton" parent="SettingsCenter/SettingsPanel/SettingsBox/ReviewRow" unique_id=1967008306]
 unique_name_in_owner = true
 layout_mode = 2
@@ -114,6 +137,21 @@ autowrap_mode = 3
 [node name="SettingsHSeparator3" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=499516789]
 layout_mode = 2
 
+[node name="KnobsHSeparator" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+
+[node name="KnobsCaption" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "旁白风格（即选即存；只影响措辞与入库门槛，不改变世界规则）"
+
+[node name="KnobsBox" type="VBoxContainer" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6
+
+
 [node name="SettingsSaveBtn" type="Button" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=891566177]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)
@@ -127,6 +165,5 @@ layout_mode = 2
 text = "返回主菜单"
 
 [connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/TestRow/TestBtn" to="." method="_on_api_test_pressed"]
-[connection signal="toggled" from="SettingsCenter/SettingsPanel/SettingsBox/ReviewRow/ReviewToggle" to="." method="_on_review_toggle_toggled"]
 [connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/SettingsSaveBtn" to="." method="_on_settings_save_pressed"]
 [connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/SettingsBackBtn" to="." method="_on_back_pressed"]

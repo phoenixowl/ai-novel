@@ -3,11 +3,17 @@ extends Control
 ## 显示姓名、身份、人设预览（超长截断省略）与好感度/知识/记忆计数。
 ## 点击卡片进入编辑页；顶栏「还原设定」删除全部运行时快照回到作者卡面（确认弹窗）。
 ## 与逻辑层经 EventBus 集线器中转：cmd_get_characters 拉取、characters_listed 接收。
+## 卡片样式：暗底圆角 + 悬停描边高亮；玩家蓝 / NPC 金做姓名点缀（色值集中在本文件头）。
 
 
-const COLOR_NAME := Color("#e9c46a")     # 卡片姓名色（与 NPC 气泡昵称色一致）
-const COLOR_TEXT := Color("#ced4da")     # 卡片正文色
-const COLOR_MUTED := Color("#8d99ae")    # 次要信息色
+const COLOR_NAME_NPC := Color("#e9c46a")           # NPC 卡姓名（金）
+const COLOR_NAME_PLAYER := Color("#7ec8e3")        # 玩家卡姓名（蓝）
+const COLOR_TEXT := Color("#ced4da")               # 卡片正文
+const COLOR_MUTED := Color("#8d99ae")              # 次要信息
+const COLOR_CARD_BG := Color("#1e1f2a")            # 卡片常态底色
+const COLOR_CARD_BG_HOVER := Color("#262838")      # 卡片悬停底色
+const COLOR_CARD_BORDER := Color("#343648")        # 卡片常态描边
+const COLOR_CARD_BORDER_HOVER := Color("#e9c46a")  # 卡片悬停描边（金）
 const COLOR_OK := Color("#90be6d")
 const COLOR_ERROR := Color("#e76f51")
 
@@ -52,13 +58,28 @@ func _on_characters_listed(items: Array) -> void:
 		grid.add_child(_build_card(raw as Dictionary))
 
 
+## 卡片底样式：圆角 + 1px 描边；常态与悬停换底色/描边色。
+func _card_style(bg: Color, border: Color) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = border
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(12)
+	return sb
+
+
 ## 构建一张人物卡片（Button + 内嵌信息列；点击进入编辑页）。
 ## item：总览数据 {kind, id, name, identity, profile, affinity, affinity_label, knowledge_count, memory_count}。
 func _build_card(item: Dictionary) -> Button:
 	var is_player := str(item.get("kind", "")) == "player"
 	var card := Button.new()
-	card.custom_minimum_size = Vector2(0, 168)
+	card.custom_minimum_size = Vector2(0, 220)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	card.add_theme_stylebox_override("normal", _card_style(COLOR_CARD_BG, COLOR_CARD_BORDER))
+	card.add_theme_stylebox_override("hover", _card_style(COLOR_CARD_BG_HOVER, COLOR_CARD_BORDER_HOVER))
+	card.add_theme_stylebox_override("pressed", _card_style(COLOR_CARD_BG, COLOR_CARD_BORDER_HOVER))
+	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	var id := str(item.get("id", ""))
 	card.pressed.connect(func():
 		_nav.character_edit_requested.emit(id)
@@ -67,17 +88,18 @@ func _build_card(item: Dictionary) -> Button:
 
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	box.offset_left = 12
-	box.offset_top = 10
-	box.offset_right = -12
-	box.offset_bottom = -10
+	box.offset_left = 18
+	box.offset_top = 14
+	box.offset_right = -16
+	box.offset_bottom = -12
+	box.add_theme_constant_override("separation", 6)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(box)
 
 	var name_label := Label.new()
 	name_label.text = "▶ 你（玩家）" if is_player else str(item.get("name", ""))
-	name_label.add_theme_font_size_override("font_size", 17)
-	name_label.add_theme_color_override("font_color", COLOR_NAME)
+	name_label.add_theme_font_size_override("font_size", 21)
+	name_label.add_theme_color_override("font_color", COLOR_NAME_PLAYER if is_player else COLOR_NAME_NPC)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(name_label)
 
@@ -86,9 +108,9 @@ func _build_card(item: Dictionary) -> Button:
 		var identity_label := Label.new()
 		identity_label.text = identity
 		identity_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		identity_label.max_lines_visible = 2
+		identity_label.max_lines_visible = 3
 		identity_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		identity_label.add_theme_font_size_override("font_size", 13)
+		identity_label.add_theme_font_size_override("font_size", 15)
 		identity_label.add_theme_color_override("font_color", COLOR_TEXT)
 		identity_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_child(identity_label)
@@ -98,9 +120,9 @@ func _build_card(item: Dictionary) -> Button:
 		var profile_label := Label.new()
 		profile_label.text = profile
 		profile_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		profile_label.max_lines_visible = 3
+		profile_label.max_lines_visible = 4
 		profile_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		profile_label.add_theme_font_size_override("font_size", 12)
+		profile_label.add_theme_font_size_override("font_size", 13)
 		profile_label.add_theme_color_override("font_color", COLOR_MUTED)
 		profile_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_child(profile_label)
@@ -118,7 +140,7 @@ func _build_card(item: Dictionary) -> Button:
 			int(item.get("affinity", 0)), str(item.get("affinity_label", "")),
 			int(item.get("knowledge_count", 0)), int(item.get("memory_count", 0)),
 		]
-	foot.add_theme_font_size_override("font_size", 12)
+	foot.add_theme_font_size_override("font_size", 13)
 	foot.add_theme_color_override("font_color", COLOR_MUTED)
 	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(foot)

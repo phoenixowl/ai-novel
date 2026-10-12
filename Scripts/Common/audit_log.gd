@@ -8,13 +8,18 @@ extends RefCounted
 var _file: FileAccess
 
 
-## 打开（或切换到）一本新日志；返回文件路径。同一目录按“前缀_时间戳”命名。
+## 打开（或切换到）一本新日志；返回文件路径。同一目录按“前缀_时间戳”命名，
+## 同一秒内重开时序号自增（_2、_3…），避免截断上一本日志。
 func open(dir_path: String, file_prefix := "event") -> String:
 	close()
 	DirAccess.make_dir_recursive_absolute(dir_path)
 	var stamp := Time.get_datetime_string_from_system()
 	stamp = stamp.replace(":", "").replace("-", "").replace("T", "_")
 	var path := "%s/%s_%s.jsonl" % [dir_path, file_prefix, stamp]
+	var serial := 1
+	while FileAccess.file_exists(path):
+		serial += 1
+		path = "%s/%s_%s_%d.jsonl" % [dir_path, file_prefix, stamp, serial]
 	_file = FileAccess.open(path, FileAccess.WRITE)
 	return path
 

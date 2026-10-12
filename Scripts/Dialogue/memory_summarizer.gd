@@ -3,7 +3,7 @@ extends RefCounted
 ## 记忆与知识提取器（Dialogue 层）：对话结算后，用一次 LLM 调用从完整对话事件流
 ## 同时产出两样东西——记忆（"我经历了什么"）和知识（"我知道了什么持久事实"）。
 ## 输出为 JSON：{memory: "…", knowledge: [{content, evidence, speaker, note}]}。
-## 引擎负责结构校验与写入 KnowledgeJournal。
+## 引擎负责结构校验与写入 Person.knowledge（信念层）。
 
 
 ## 组装提示词（system 要求 JSON 输出；user 携带完整对话事件流）。

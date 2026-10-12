@@ -1,5 +1,5 @@
 extends Control
-## 开始菜单屏（Scripts/UI/）：应用启动首页，提供「人物对话」「人物」「设置」三个入口。
+## 开始菜单屏（Scripts/UI/）：应用启动首页，提供「探索世界」「人物」「设置」三个入口。
 ## 跳转经 UiEvents 集线器的 navigate_requested 信号发出，由根容器切换屏幕。
 
 
@@ -17,9 +17,9 @@ func _ready() -> void:
 	_nav = _bus().hub(UiEvents) as UiEvents
 
 
-## 「人物对话」：请求导航到对话屏。
-func _on_menu_dialogue_pressed() -> void:
-	_nav.navigate_requested.emit("dialogue")
+## 「探索世界」：请求导航到探索屏（旁白域——行动裁决与世界叙述）。
+func _on_menu_narration_pressed() -> void:
+	_nav.navigate_requested.emit("narration")
 
 
 ## 「人物」：请求导航到人物总览。

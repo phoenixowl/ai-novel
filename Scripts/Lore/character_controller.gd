@@ -2,8 +2,8 @@ class_name CharacterController
 extends Node
 ## 人物控制器（Lore 层，autoload "Characters"）：人物域的命令接收入口。
 ## 管理人物运行时快照的一切修改——总览/详情查询、保存（人设/知识/记忆/好感度）、
-## 恢复卡面、写回作者卡面、还原设定；对话学习写快照的构建规则也在这里
-##（build_journal_for：对话域与编辑域共用的唯一知识日志构建入口）。
+## 恢复卡面、写回作者卡面、还原设定。人物数据模型为 Models 层的 Person
+## （knowledge: Array[KnowledgeEntry] 承载信念，确定性算术在 KnowledgeEntry 上）。
 ##
 ## 数据模型：user://characters/<id>.json 是单人物的运行时快照（persona 区 + journal 区），
 ## 一切修改都写快照；res://settings/ 是只读模板，只有「写回」会触碰它。
@@ -43,7 +43,8 @@ func _bus() -> EventBus:
 func _ready() -> void:
 	_shared = self
 	_events = _bus().hub(CharacterEvents) as CharacterEvents
-	repository.load_all()
+	relink_runtime_journals()  # 启动维护：旧形态知识与正典对齐（在加载/接管前完成文件级转换）
+	repository.load_all()      # load_all 内含快照接管（_attach_journals）
 	_events.cmd_get_characters.connect(_on_cmd_get_characters)
 	_events.cmd_get_character.connect(_on_cmd_get_character)
 	_events.cmd_save_character.connect(_on_cmd_save_character)
@@ -64,30 +65,72 @@ func _exit_tree() -> void:
 		_events.cmd_restore_lore.disconnect(_on_cmd_restore_lore)
 
 
-# ———— 知识日志构建（对话域与编辑域共用的唯一入口） ————
+# ———— 启动维护与持久化 ————
 
 
-## 构建某人物的知识日志：人物快照的 journal 区存在则整体接管；
-## 否则以卡面初始知识起步 + 旧学习日志（user://journals/，仅兼容读取）。
-static func build_journal_for(card: CharacterCard) -> KnowledgeJournal:
-	var j := KnowledgeJournal.new()
-	if j.load_snapshot(card.id):
-		return j
-	for entry in card.knowledge:
-		var e := entry as Dictionary
-		j.add_card_entry(
-			str(e.get("content", "")),
-			str(e.get("source", "常识")),
-			str(e.get("trust", "比较相信")),
-		)
-	j.load_learned(card.id)
-	return j
+## 启动维护：把运行时快照里仍以旧形态（card/subjective）存放、但内容已与正典
+## 逐字一致的知识转换为信念引用（kind=ref，fact_id 指向正典）——作者正典播种后
+## 的一次性对齐。幂等（已是引用或无匹配的条目不动），已失效传闻不转换。
+static func relink_runtime_journals() -> void:
+	var dir := DirAccess.open(SnapshotStore.DIR)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while not file_name.is_empty():
+		if not dir.current_is_dir() and file_name.ends_with(".json"):
+			var path := "%s/%s" % [SnapshotStore.DIR, file_name]
+			var data := JsonTool.read_json_file(path)
+			var changed := false
+			for raw in data.get("knowledge", []):
+				if not (raw is Dictionary):
+					continue
+				var e := raw as Dictionary
+				if str(e.get("kind", "")) == "ref":
+					continue
+				if str(e.get("status", "")) == "voided":
+					continue
+				var fact_id := CanonStore.find_by_content(str(e.get("content", "")))
+				if fact_id > 0 and int(e.get("fact_id", 0)) != fact_id:
+					e["kind"] = "ref"
+					e["fact_id"] = fact_id
+					changed = true
+			if changed:
+				JsonTool.write_json_file(path, data)
+		file_name = dir.get_next()
+	dir.list_dir_end()
 
 
-## 删除某人物的运行时档案（快照 + 旧学习日志）。恢复卡面与重置记忆共用。
+## 人物信念/记忆落盘到运行时快照（对话结算与编辑保存的统一写路径）。
+static func save_journal(person: Person, npc_id: String) -> void:
+	SnapshotStore.write_journal(npc_id, person.knowledge_dicts(), person.memories, person.next_seq_value())
+
+
+## 涟漪计数：某正典条目被取代时，全部人物快照里指向它的信念引用数。
+## 扫描 user://characters/*.json（取代是罕见事件，文件量小，确定性可接受）。
+static func count_knowledge_refs(fact_id: int) -> int:
+	var dir := DirAccess.open(SnapshotStore.DIR)
+	if dir == null:
+		return 0
+	var count := 0
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while not file_name.is_empty():
+		if not dir.current_is_dir() and file_name.ends_with(".json"):
+			var data := JsonTool.read_json_file(SnapshotStore.DIR + "/" + file_name)
+			for raw in data.get("knowledge", []):
+				if raw is Dictionary \
+						and str((raw as Dictionary).get("kind", "")) == "ref" \
+						and int((raw as Dictionary).get("fact_id", 0)) == fact_id:
+					count += 1
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	return count
+
+
+## 删除某人物的运行时档案（快照）。恢复卡面与重置记忆共用。
 static func erase_runtime_state(npc_id: String) -> void:
 	SnapshotStore.erase(npc_id)
-	DirAccess.remove_absolute("user://journals/%s.json" % npc_id)
 
 
 # ———— 查询 ————
@@ -103,25 +146,24 @@ func _character_summary_items() -> Array:
 	var items: Array = []
 	items.append({
 		"kind": "player", "id": "player",
-		"name": repository.player_card.display_name,
-		"identity": repository.player_card.identity,
-		"profile": repository.player_card.appearance,
+		"name": repository.player.canonical_name,
+		"identity": repository.player.identity,
+		"profile": repository.player.appearance,
 		"affinity": 0, "affinity_label": "",
 		"knowledge_count": -1, "memory_count": -1,
 	})
 	for id in repository.character_ids():
-		var card: CharacterCard = repository.characters[id]
-		var j := build_journal_for(card)
-		var affinity := AffinityStore.get_value(id, card.affinity)
+		var person: Person = repository.characters[id]
+		var affinity := AffinityStore.get_value(id, person.affinity)
 		items.append({
 			"kind": "npc", "id": id,
-			"name": card.display_name,
-			"identity": card.identity,
-			"profile": card.profile,
+			"name": person.canonical_name,
+			"identity": person.identity,
+			"profile": person.profile,
 			"affinity": affinity,
 			"affinity_label": AffinityStore.tier_label(affinity),
-			"knowledge_count": j.size(),
-			"memory_count": j.memory_count(),
+			"knowledge_count": person.knowledge.size(),
+			"memory_count": person.memory_count(),
 		})
 	return items
 
@@ -137,33 +179,35 @@ func _character_detail(npc_id: String) -> Dictionary:
 	if npc_id == "player":
 		return {
 			"kind": "player", "id": "player",
-			"name": repository.player_card.display_name,
-			"identity": repository.player_card.identity,
-			"profile": repository.player_card.appearance,
+			"name": repository.player.canonical_name,
+			"identity": repository.player.identity,
+			"profile": repository.player.appearance,
 			"profile_label": "外观（NPC 看到的样子）",
 			"affinity": 0, "has_snapshot": false,
 			"knowledge": [], "memories": [],
 		}
 	if not repository.characters.has(npc_id):
 		return {}
-	var card: CharacterCard = repository.characters[npc_id]
-	var j := build_journal_for(card)
+	var person: Person = repository.characters[npc_id]
 	var knowledge: Array = []
-	for e in j.entries_all():
-		var d := (e as Dictionary).duplicate()
-		d["trust_view"] = ("已失效" if str(d.get("status", "")) == KnowledgeJournal.STATUS_VOIDED
-			else str(d.get("trust", "")))
-		knowledge.append(d)
+	for e in person.knowledge:
+		knowledge.append({
+			"seq": e.seq,
+			"content": e.content,
+			"speaker": e.speaker,
+			"trust_view": KnowledgeEntry.TRUST_VOID_KEY if e.status == KnowledgeEntry.EntryStatus.VOIDED
+				else KnowledgeEntry.trust_to_key(e.trust),
+		})
 	return {
 		"kind": "npc", "id": npc_id,
-		"name": card.display_name,
-		"identity": card.identity,
-		"profile": card.profile,
+		"name": person.canonical_name,
+		"identity": person.identity,
+		"profile": person.profile,
 		"profile_label": "人设",
-		"affinity": AffinityStore.get_value(npc_id, card.affinity),
+		"affinity": AffinityStore.get_value(npc_id, person.affinity),
 		"has_snapshot": SnapshotStore.exists(npc_id),
 		"knowledge": knowledge,
-		"memories": j.memory_texts(),
+		"memories": person.memory_texts(),
 	}
 
 
@@ -190,13 +234,12 @@ func _on_cmd_save_character(payload: Dictionary) -> void:
 
 ## NPC 保存：人设 → 快照 persona 区；知识/记忆 → 快照 journal 区；好感度 → AffinityStore。
 func _save_npc(id: String, payload: Dictionary) -> void:
-	var card: CharacterCard = repository.characters[id]
+	var person: Person = repository.characters[id]
 	SnapshotStore.write_persona(id, {
-		"name": str(payload.get("name", card.display_name)),
-		"identity": str(payload.get("identity", card.identity)),
-		"profile": str(payload.get("profile", card.profile)),
+		"name": str(payload.get("name", person.canonical_name)),
+		"identity": str(payload.get("identity", person.identity)),
+		"profile": str(payload.get("profile", person.profile)),
 	})
-	var j := build_journal_for(card)
 	var kept := {}
 	for raw in payload.get("knowledge", []):
 		if not (raw is Dictionary):
@@ -206,39 +249,35 @@ func _save_npc(id: String, payload: Dictionary) -> void:
 		if content.is_empty():
 			continue
 		var seq := int(item.get("seq", 0))
-		if seq > 0 and j.has_seq(seq):
-			j.update_entry(seq, content, str(item.get("speaker", "")), str(item.get("trust", "")))
+		if seq > 0 and person.has_seq(seq):
+			person.update_entry(seq, content, str(item.get("speaker", "")), str(item.get("trust", "")))
 		else:
-			seq = j.learn(content, "", str(item.get("speaker", "手动")), 0, 0, "编辑页手动添加")
+			seq = person.learn_entry(content, "", str(item.get("speaker", "手动")), 0, 0, "编辑页手动添加")
 		kept[seq] = true
-	j.retain_seqs(kept)
-	j.set_memories(payload.get("memories", []))
-	j.save(id)
-	AffinityStore.set_value(id, int(payload.get("affinity", card.affinity)))
+	person.retain_seqs(kept)
+	person.set_memories(payload.get("memories", []))
+	save_journal(person, id)
+	AffinityStore.set_value(id, int(payload.get("affinity", person.affinity)))
 
 
 ## 玩家保存：user://player.json（含称呼，覆盖作者默认卡）。
 func _save_player(payload: Dictionary) -> void:
-	repository.player_card.display_name = str(payload.get("name", repository.player_card.display_name))
-	repository.player_card.identity = str(payload.get("identity", repository.player_card.identity))
-	repository.player_card.appearance = str(payload.get("profile", repository.player_card.appearance))
-	DirAccess.make_dir_recursive_absolute("user://")
-	var file := FileAccess.open("user://player.json", FileAccess.WRITE)
-	if file != null:
-		file.store_string(JSON.stringify({
-			"name": repository.player_card.display_name,
-			"identity": repository.player_card.identity,
-			"appearance": repository.player_card.appearance,
-		}, "  "))
-		file.close()
+	repository.player.canonical_name = str(payload.get("name", repository.player.canonical_name))
+	repository.player.identity = str(payload.get("identity", repository.player.identity))
+	repository.player.appearance = str(payload.get("profile", repository.player.appearance))
+	JsonTool.write_json_file("user://player.json", {
+		"name": repository.player.canonical_name,
+		"identity": repository.player.identity,
+		"appearance": repository.player.appearance,
+	})
 
 
-## 处理 cmd_reset_character：恢复卡面——删除该 NPC 的运行时快照与旧学习日志（好感度保留）。
+## 处理 cmd_reset_character：恢复卡面——删除该 NPC 的运行时快照（好感度保留）。
 func _on_cmd_reset_character(npc_id: String) -> void:
 	if not repository.characters.has(npc_id):
 		return
 	erase_runtime_state(npc_id)
-	repository.load_all()
+	repository.load_all()  # 重建 Person：回落作者卡面（快照已删，接管为空）
 	_events.characters_listed.emit(_character_summary_items())
 	_events.character_loaded.emit(_character_detail(npc_id))
 	_events.character_action_result.emit(npc_id, true, "已恢复卡面（好感度保留）")
@@ -253,31 +292,13 @@ func _on_cmd_write_back_character(npc_id: String) -> void:
 	var path: String
 	if npc_id == "player":
 		data = {
-			"name": repository.player_card.display_name,
-			"identity": repository.player_card.identity,
-			"appearance": repository.player_card.appearance,
+			"name": repository.player.canonical_name,
+			"identity": repository.player.identity,
+			"appearance": repository.player.appearance,
 		}
 		path = "res://settings/player.json"
 	elif repository.characters.has(npc_id):
-		var card: CharacterCard = repository.characters[npc_id]
-		var j := build_journal_for(card)
-		var knowledge: Array = []
-		for e in j.entries_all():
-			var d := e as Dictionary
-			var trust := ("已失效" if str(d.get("status", "")) == KnowledgeJournal.STATUS_VOIDED
-				else str(d.get("trust", "")))
-			knowledge.append({
-				"content": str(d.get("content", "")),
-				"source": str(d.get("speaker", "常识")),
-				"trust": trust,
-			})
-		data = {
-			"id": npc_id,
-			"name": card.display_name,
-			"identity": card.identity,
-			"profile": card.profile,
-			"knowledge": knowledge,
-		}
+		data = (repository.characters[npc_id] as Person).to_author_dict()
 		path = "res://settings/characters/%s.json" % npc_id
 	else:
 		return
@@ -291,11 +312,10 @@ func _on_cmd_write_back_character(npc_id: String) -> void:
 	_events.character_action_result.emit(npc_id, true, "已写回 %s" % path)
 
 
-## 处理 cmd_restore_lore：还原设定——删除全部人物快照与旧学习日志，回到作者卡面。
+## 处理 cmd_restore_lore：还原设定——删除全部人物快照，回到作者卡面。
 ## 好感度（user://affinity/）与对话审计日志（user://dialogue_logs/）保留。
 func _on_cmd_restore_lore() -> void:
 	SnapshotStore.erase_all()
-	SnapshotStore.wipe_json_dir("user://journals")
 	repository.load_all()
 	_events.characters_listed.emit(_character_summary_items())
 	_events.character_action_result.emit("", true, "已还原全部人物设定（好感度与对话日志保留）")

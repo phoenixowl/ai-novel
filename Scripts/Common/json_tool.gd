@@ -88,3 +88,21 @@ static func extract_object(text: String) -> Variant:
 ## 剥围栏 + 提取的组合（模型输出解析的标准入口）；失败返回 null
 static func try_parse(text: String) -> Variant:
 	return extract_object(strip_code_fence(text))
+
+
+## 读 JSON 文件为 Dictionary；缺失/损坏/非对象一律返回空 Dictionary（自动剥 BOM）。
+static func read_json_file(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var parsed: Variant = JSON.parse_string((FileAccess.get_file_as_string(path) as String).trim_prefix("\uFEFF"))
+	return parsed if parsed is Dictionary else {}
+
+
+## 写 Dictionary 到 JSON 文件。返回是否成功（失败由调用方决定是否反馈）。
+static func write_json_file(path: String, data: Dictionary, indent := "  ") -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(JSON.stringify(data, indent))
+	file.close()
+	return true

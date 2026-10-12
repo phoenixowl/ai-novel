@@ -37,7 +37,8 @@ Scripts/
 ├─ LLM/       「模型」域：和 DeepSeek 打交道的一切
 ├─ Lore/      「设定」域：人物卡、组织、知识日志、人物编辑
 ├─ Dialogue/  「对话」域：一轮对话的核心流程
-└─ UI/        「界面」域：五个屏幕各自的脚本 + 导航信号
+├─ Narration/ 「旁白」域：行动裁决、世界事实正典、玩家状态
+└─ UI/        「界面」域：六个屏幕各自的脚本 + 导航信号
 ```
 
 **依赖方向是单向的**：UI → 总线 → 各域控制器。UI 从不直接调用控制器的函数，
@@ -55,10 +56,11 @@ Scripts/
 | 1 | `Events` | `Common/event_bus.gd` | 契约 | 事件总线，所有跨层消息的中转站 |
 | 2 | `LLM` | `LLM/llm_controller.gd` | 控制器 | 模型域：管 API Key、创建客户端、发请求 |
 | 3 | `Characters` | `Lore/character_controller.gd` | 控制器 | 人物域：卡面/快照、人物编辑、知识日志构建 |
-| 4 | `Dialogue` | `Dialogue/dialogue_controller.gd` | 控制器 | 对话域：整段对话流程的指挥官 |
+| 4 | `Narration` | `Narration/narration_controller.gd` | 控制器 | 旁白域：行动裁决、世界事实正典、玩家状态 |
+| 5 | `Dialogue` | `Dialogue/dialogue_controller.gd` | 控制器 | 对话域：整段对话流程的指挥官 |
 
 各控制器在所属域的 Events 集线器上连接 `cmd_*` 命令、发射事件信号：
-`DialogueEvents` / `LlmEvents` / `CharacterEvents` / `UiEvents`。
+`DialogueEvents` / `LlmEvents` / `CharacterEvents` / `NarrationEvents` / `UiEvents`。
 看名字就知道方向：`cmd_*` 是 UI 发给控制器的命令，其余是控制器发给 UI 的事件。
 
 ---
@@ -76,7 +78,8 @@ Scripts/
 | `affinity/<id>.json` | 该 NPC 对玩家的好感度 | AffinityStore |
 | `player.json` | 玩家快照（称呼/身份/外观） | CharacterController |
 | `config.cfg` | API Key、模型、审查开关 | LlmConfig / GameConfig |
-| `dialogue_logs/*.jsonl` | 每段对话的审计流水（一行一个 JSON） | AuditLog |
+| `world/canon.json` | **世界事实正典**：旁白确立的事实（与对话系统相互独立） | CanonStore |
+| `dialogue_logs/*.jsonl` | 每段对话与旁白的审计流水（一行一个 JSON） | AuditLog |
 | `journals/<id>.json` | 旧版学习日志（仅兼容读取，不再新写） | —— |
 
 **快照语义**：一切修改（对话学习、编辑页保存）都写快照；`res://settings/` 是只读模板。
@@ -187,6 +190,15 @@ Scripts/Dialogue/                        「对话」域
   response_parser.gd      (111)  处理器·回应四要素校验
   memory_summarizer.gd     (46)  处理器·结算时记忆/知识提取提示词
 
+Scripts/Narration/                       「旁白」域
+  narration_controller.gd(346) 控制器：回合编排/快照回滚/旋钮
+  narration_events.gd      (28)  契约：旁白域信号
+  canon_store.gd          (191)  存取器·世界事实正典（supersede/预算压缩/快照链）
+  narration_pack.gd        (56)  模型·旁白材料包与调试展示
+  narration_pack_builder.gd(26)  处理器·冻结现场组装材料包
+  narration_prompt_builder.gd(126) 处理器·两层提示词（旋钮缓存）
+  narration_parser.gd      (84)  处理器·回合契约校验（闭集 ref/门槛/枚举）
+
 Scripts/UI/                              「界面」域
   ui_events.gd             (16)  契约·导航（navigate/编辑/对话请求）
   main_ui.gd               (46)  根容器：五屏切换
@@ -197,8 +209,9 @@ Scripts/UI/                              「界面」域
   settings_screen.gd      (115)  设置屏：API + 审查开关
 
 tests/
-  smoke_test.gd           (196)  分层单元测试
-  engine_loop_test.gd     (218)  端到端回路测试（含人物编辑链路）
+  smoke_test.gd           (260)  分层单元测试（含旁白域）
+  engine_loop_test.gd     (218)  对话域端到端回路（含人物编辑链路）
+  narration_loop_test.gd  (160)  旁白域端到端回路（含双向桥）
   test_util.gd             (11)  断言辅助
 ```
 

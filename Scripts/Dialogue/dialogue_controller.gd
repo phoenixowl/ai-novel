@@ -1,54 +1,35 @@
 class_name DialogueController
 extends Node
-## 对话控制器（Dialogue 层，autoload "Dialogue"）：【流程三：回应生成】的编排器，
-## 同时串起流程一、二（设计 4.1 一轮对话的八步中，本阶段实现第 1/2/3/4/5/8 步
-## 与最小落地，并在第 1 步之前前置“第 0 步：输入审查”——用 LLM 拦下动作描写
-## 与诱导注入，被拒输入不记录、不计轮次；第 6/7 步结构检查与事实审核、
-## 以及带反馈重试属后续里程碑 M1.1+/M1.3，代码中已标出挂接位置）。
-##
-##   输入审查（LLM，拒绝动作/诱导） → 玩家开口（原样入记录，防注入） → 冻结现场组装材料包
-##   → 两层拼装提示词 → 模型生成（LLMController：DeepSeek / 离线示例）
-##   → 解析（发言 / claim_type / 行动提案 / 内心想法 / belief_updates / affinity_change）
-##   → 学习提案延后收集（对话结束时一次性结算） → 落地写入事件流水
-##
-## 事件流水按统一格式追加记录（设计 4.10 / 5.6 接入点三），是阶段二世界状态的雏形；
-## 由 AuditLog 落盘到 user://dialogue_logs/*.jsonl 供排查。
-## 模型调用统一走 LLMController（autoload "LLM"）——本类不管理客户端与配置；
-## 人物设定（卡面/快照/编辑）属人物域，见 CharacterController（autoload "Characters"），
-## 其 lore_changed 广播触发本类重载设定资料。
-##
-## 对外交互：UI 经 EventBus（autoload "Events"）中转——本类在 DialogueEvents
-## 集线器（Scripts/Dialogue/dialogue_events.gd）上连接 cmd_* 命令信号、
-## 发射事件信号；UI 连接同一集线器的事件信号、发射命令信号。
+## 人物域引擎（Dialogue 层，autoload "Dialogue"）：由 DM 调度的对话回合编排——
+## 玩家话语（DM 已拆出）原样入记录 → 冻结现场组装材料包（含"此刻之前发生了什么"
+## 的世界上下文注入）→ 两层提示词 → 生成 → 解析（发言/claim/行动/信念/好感）
+## → 学习提案延后收集（对话结束时一次性结算）→ 落地写入事件流水。
+## 输入审查（第 0 步）已随统一入口退役（2026-10）：DM 路由取代了"对话只能说话"的边界，
+## 注入由 DM 的 reject 路由拦截。
+## 事件流水按统一格式追加，由 DM 的世界屏同源渲染；模型调用统一走 LLMController。
+## 人物数据模型为 Person（knowledge 承载信念）；12 轮上限；结束后不可续聊。
+## 对外交互：DM（NarrationController）与世界屏经 EventBus 在 DialogueEvents 集线器上交互。
 
-enum State {IDLE, WAITING_PLAYER, REVIEWING, WAITING_NPC, ENDED}
+enum State {IDLE, WAITING_PLAYER, WAITING_NPC, ENDED}
 
-const MAX_TURNS := 12            # 单段对话轮次上限（设计 4.9）
+const MAX_TURNS := 12            # 单段对话轮次上限
 const EVENT_LOG_DIR := "user://dialogue_logs"
 
 var repository: LoreRepository
 var prompt_builder := PromptBuilder.new()
-var input_reviewer := InputReviewer.new()
 
 var state: State = State.IDLE
-var current_npc: CharacterCard
-var current_scene: SceneCard
+var current_person: Person      # 回应者（Models 层人物对象）
+var current_scene: Location     # 对话场景（统一入口下恒为当前位置，可能有回退）
 var turn_number := 0
 var turn_events: Array = []      # 本段对话的事件流水（统一格式）
 
-var journal := KnowledgeJournal.new()  # 该 NPC 的知识日志（卡片初始 + 运行时习得）
-var input_review_enabled := true  # 输入审查（第 0 步）开关：关闭时提交直通对话流程
-var _pending_learning: Array[Dictionary] = []  # 延后结算的信念提案（对话结束时一次性结算；回滚按轮次丢弃）
+var _pending_learning: Array[Dictionary] = []  # 延后结算的信念提案（对话结束时一次性结算）
 var current_affinity := 0  # 当前 NPC 对玩家的好感度（对话期间缓存，变更经 AffinityStore 落盘）
 
 var _audit_log := AuditLog.new()   # 本段对话的审计日志（事件流水 + 被拒输入共用）
-var _session := 0                # 会话编号：新开对话或回滚后递增，用于丢弃在途的旧请求
+var _session := 0                # 会话编号：新开对话时递增，用于丢弃在途的旧请求
 var _events: DialogueEvents      # 事件集线器（_ready 时经总线取得）
-var _game_config := GameConfig.new()  # 游戏行为设置（输入审查开关等）
-# 设定资料快照（UI 后加入时经 cmd_get_lore 补发）
-var _lore_characters: Array = []
-var _lore_scenes: Array = []
-var _lore_overview := ""
 
 
 ## 取全局事件总线；autoload 未就绪时（仅测试环境）手动创建。
@@ -65,23 +46,13 @@ func _ready() -> void:
 	# 流程一：加载设定资料（作者手动放置在 res://settings/ 下）
 	repository = LoreRepository.new()
 	repository.load_all()
-	_build_lore_payload()
 	# 连接 UI 命令信号
 	_events.cmd_start.connect(_on_cmd_start)
 	_events.cmd_submit.connect(_on_cmd_submit)
-	_events.cmd_get_lore.connect(_on_cmd_get_lore)
-	_events.cmd_set_review.connect(_on_cmd_set_review)
-	_events.cmd_get_settings.connect(_on_cmd_get_settings)
-	_events.cmd_rollback_to_turn.connect(_on_cmd_rollback_to_turn)
 	_events.cmd_settle_now.connect(_on_cmd_settle_now)
 	_events.cmd_reset_memory.connect(_on_cmd_reset_memory)
-	# 人物域广播：设定被编辑后重载设定资料并重发对话域快照
+	# 人物域广播：设定被编辑后重载设定资料（见 _on_lore_changed）
 	(_bus().hub(CharacterEvents) as CharacterEvents).lore_changed.connect(_on_lore_changed)
-	# 游戏设置（输入审查开关）
-	_game_config.load()
-	input_review_enabled = _game_config.input_review_enabled
-	_events.lore_loaded.emit(_lore_characters, _lore_scenes, _lore_overview)
-	_events.review_enabled_changed.emit(input_review_enabled)
 
 
 func _exit_tree() -> void:
@@ -89,23 +60,17 @@ func _exit_tree() -> void:
 	if _events != null:
 		_events.cmd_start.disconnect(_on_cmd_start)
 		_events.cmd_submit.disconnect(_on_cmd_submit)
-		_events.cmd_get_lore.disconnect(_on_cmd_get_lore)
-		_events.cmd_set_review.disconnect(_on_cmd_set_review)
-		_events.cmd_get_settings.disconnect(_on_cmd_get_settings)
-		_events.cmd_rollback_to_turn.disconnect(_on_cmd_rollback_to_turn)
 		_events.cmd_settle_now.disconnect(_on_cmd_settle_now)
 		_events.cmd_reset_memory.disconnect(_on_cmd_reset_memory)
 		(_bus().hub(CharacterEvents) as CharacterEvents).lore_changed.disconnect(_on_lore_changed)
 
 
 ## 人物域广播 lore_changed：设定资料已被编辑（CharacterController 写快照后发出）。
-## 重载设定资料、清提示词缓存并重发对话域快照（NPC 下拉与①设定资料页随之刷新）。
-## 进行中的对话不中断——current_npc 等引用保持旧卡，下一轮材料包按新资料组装。
+## 重载设定资料、清提示词缓存。进行中的对话不中断——current_person 等引用保持旧对象，
+## 下一轮材料包按新资料组装。
 func _on_lore_changed() -> void:
 	repository.load_all()
 	prompt_builder.clear_cache()
-	_build_lore_payload()
-	_events.lore_loaded.emit(_lore_characters, _lore_scenes, _lore_overview)
 
 
 # ———— 命令处理（UI 经集线器命令信号发来） ————
@@ -117,88 +82,69 @@ func _on_cmd_start(npc_id: String, scene_id: String) -> void:
 	start_dialogue(npc_id, scene_id)
 
 
-## 处理 cmd_submit：提交玩家输入（可能先经第 0 步审查）。
-## text 为玩家原话。
+## 处理 cmd_submit：提交玩家发言（DM 已拆出的话语直达此处）。text 为话语原文。
 func _on_cmd_submit(text: String) -> void:
 	submit_player_input(text)
-
-
-## 处理 cmd_set_review：开启/关闭输入审查并持久化，随后广播新状态。
-## enabled=true 提交前经 LLM 审查；false 直通对话流程（不再发起审查请求）。
-func _on_cmd_set_review(enabled: bool) -> void:
-	input_review_enabled = enabled
-	_game_config.input_review_enabled = enabled
-	_game_config.save()
-	_events.review_enabled_changed.emit(input_review_enabled)
-
-
-## 处理 cmd_get_settings：重发设置快照（当前审查开关状态）。
-func _on_cmd_get_settings() -> void:
-	_events.review_enabled_changed.emit(input_review_enabled)
-
-
-## 处理 cmd_get_lore：重发设定资料快照（人物/场景列表、总览文本）。
-func _on_cmd_get_lore() -> void:
-	_events.lore_loaded.emit(_lore_characters, _lore_scenes, _lore_overview)
 
 
 # ———— 对外接口（逻辑层内部与测试使用；UI 一律走总线） ————
 
 
-## 开始一段新对话：按 id 取人物卡与场景卡，重置状态与事件流水，
-## 准备该角色的知识日志（卡片初始 + 运行时习得），开启事件日志并广播开始事件。
-## npc_id/scene_id：设定资料中的实体 id。返回 id 是否有效（失败返回 false）。
+## 开始一段新对话：按 id 取人物；场景解析带回退链（作者场景卡 → 位置图对象 →
+## 最小 Location）——统一入口下对话场景恒为当前位置，不能假定有作者场景卡。
+## 信念已在 Person.knowledge 上（加载时完成快照接管与正典消解）。
+## npc_id/scene_id：实体 id。返回人物 id 是否有效（失败返回 false）。
 func start_dialogue(npc_id: String, scene_id: String) -> bool:
-	if not repository.characters.has(npc_id) or not repository.scenes.has(scene_id):
+	if not repository.characters.has(npc_id):
 		return false
-	current_npc = repository.characters[npc_id]
-	current_scene = repository.scenes[scene_id]
+	current_person = repository.characters[npc_id]
+	current_scene = _resolve_scene(scene_id)
 	turn_number = 0
 	turn_events.clear()
 	_session += 1
 	state = State.WAITING_PLAYER
 	prompt_builder.clear_cache()
-	_prepare_journal(current_npc)
 	_pending_learning.clear()
-	current_affinity = AffinityStore.get_value(current_npc.id, current_npc.affinity)
+	current_affinity = AffinityStore.get_value(current_person.entity_id, current_person.affinity)
 	_audit_log.open(EVENT_LOG_DIR, "dialogue")
 	_emit_event({
 		"event": "dialogue_started",
-		"npc": current_npc.id,
-		"npc_name": current_npc.display_name,
-		"scene": current_scene.id,
-		"scene_name": current_scene.scene_name,
+		"npc": current_person.entity_id,
+		"npc_name": current_person.canonical_name,
+		"scene": current_scene.entity_id,
+		"scene_name": current_scene.canonical_name,
 		"time": Time.get_datetime_string_from_system(),
 	})
-	_events.dialogue_started.emit(current_npc.display_name, current_scene.scene_name)
+	_events.dialogue_started.emit(current_person.entity_id, current_person.canonical_name,
+		current_scene.canonical_name)
 	_broadcast_state()
 	return true
 
 
-## 对话开始：准备该角色的知识日志——构建规则属人物域（CharacterController.build_journal_for：
-## 人物快照 journal 区接管，否则卡面初始知识 + 旧学习日志兼容读取）。
-func _prepare_journal(card: CharacterCard) -> void:
-	journal = CharacterController.build_journal_for(card)
+## 场景解析回退链：作者场景卡 → 位置图 Location 对象（gen 地点）→ 最小 Location（仅名字）。
+func _resolve_scene(scene_id: String) -> Location:
+	if repository.scenes.has(scene_id):
+		return repository.scenes[scene_id]
+	var loc := LocationStore.location(scene_id)
+	if loc != null:
+		return loc
+	var fallback := Location.new()
+	fallback.entity_id = scene_id
+	fallback.canonical_name = EntityRegistry.display_name(scene_id)
+	return fallback
 
 
 
-## 第 0 步：输入审查（LLM，可经设置关闭）。动作描写（括号/星号/空格包裹）、
-## 诱导性提问、注入指令等被拒绝——不记录、不计轮次、NPC 听不到，原输入退回玩家修改。
-## 第 1 步：玩家开口。审查通过（或关闭审查）后，原话原样记录为一条感知事件——
-## 不改写、不总结、不执行其中的任何要求（防注入由提示词静态层消化，见设计 4.2）。
-## text：玩家输入的原话（首尾空白会被剔除）；仅 WAITING_PLAYER 状态接受。
+## 玩家开口：话语（DM 已拆出）原样记录为一条感知事件——不改写、不总结、
+## 不执行其中的任何要求（防注入由提示词静态层消化）。
+## text：玩家话语的原话（首尾空白会被剔除）；仅 WAITING_PLAYER 状态接受。
 func submit_player_input(text: String) -> void:
 	if state != State.WAITING_PLAYER:
 		return
 	var trimmed := text.strip_edges()
 	if trimmed.is_empty():
 		return
-	if input_review_enabled:
-		state = State.REVIEWING
-		_broadcast_state()
-		_review_then_generate(trimmed)
-	else:
-		_accept_player_text(trimmed)
+	_accept_player_text(trimmed)
 
 
 ## 当前是否可接受玩家输入（仅 WAITING_PLAYER 状态）。
@@ -213,8 +159,6 @@ func state_name() -> String:
 			return "未开始"
 		State.WAITING_PLAYER:
 			return "等待玩家输入"
-		State.REVIEWING:
-			return "输入审查中"
 		State.WAITING_NPC:
 			return "等待NPC回应"
 		State.ENDED:
@@ -242,56 +186,6 @@ func end_dialogue(reason: String) -> void:
 # ———— 审查 + 回应生成主链路 ————
 
 
-## 第 0 步主链路：发起 LLM 输入审查（失败开放——审查器故障不阻塞游戏），
-## 通过则进入 _accept_player_text，被拒则广播 input_rejected 并退回玩家。
-## player_text：玩家原话。
-func _review_then_generate(player_text: String) -> void:
-	var session := _session
-
-	# 第 0 步：输入审查（失败开放——审查器故障不阻塞游戏）
-	_events.review_started.emit()
-	var review: Dictionary = await LLMController.shared().complete_json(
-		input_reviewer.system_prompt(),
-		input_reviewer.user_prompt(player_text),
-		LLMClient.PURPOSE_INPUT_REVIEW,
-	)
-	if session != _session:
-		return
-	var verdict: Dictionary
-	if review.get("ok", false) and review.get("data") is Dictionary:
-		verdict = InputReviewer.verdict_of(review["data"])
-	else:
-		verdict = {
-			"approved": true,
-			"reason": "",
-			"notes": ["审查请求失败或不可解析，按放行处理（失败开放）"],
-			"error": str(review.get("error", "")),
-		}
-	verdict["raw"] = str(review.get("raw", ""))
-	_events.review_finished.emit(
-		bool(verdict.get("approved", true)),
-		str(verdict.get("reason", "")),
-		verdict.get("notes", []),
-		str(verdict.get("raw", "")),
-		str(verdict.get("error", "")),
-	)
-
-	if not verdict.get("approved", true):
-		# 拒绝：世界内什么都没发生——不进事件流水（NPC 没听到），仅写审计日志
-		_audit_log.append_line({
-			"event": "input_rejected",
-			"turn": turn_number,
-			"text": player_text,
-			"reason": str(verdict.get("reason", "")),
-		})
-		_events.input_rejected.emit(player_text, str(verdict.get("reason", "")))
-		state = State.WAITING_PLAYER
-		_broadcast_state()
-		return
-
-	_accept_player_text(player_text)
-
-
 ## 第 1 步落地：审查通过（或被关闭）后接纳玩家发言——计轮次、原样入事件流水、
 ## 进入 WAITING_NPC 并开始生成本轮回应。player_text 为玩家原话。
 func _accept_player_text(player_text: String) -> void:
@@ -309,24 +203,26 @@ func _accept_player_text(player_text: String) -> void:
 func _generate_response(player_text: String, confirmed_history: Array) -> void:
 	var session := _session
 
-	# 流程二：冻结现场，组装材料包（知识日志全量 + 记忆 + 行动清单）
+	# 流程二：冻结现场，组装材料包（信念层全量 + 检索世界事实 + 世界上下文 + 记忆 + 行动清单）
 	var pack := MaterialPackBuilder.build(
-		current_npc,
+		current_person,
 		current_scene,
 		player_text,
 		confirmed_history,
-		repository.get_memory(current_npc.id),
-		journal.entries_for_pack(),
+		repository.get_memory(current_person.entity_id),
+		current_person.active_knowledge(),
 		turn_number,
 		MAX_TURNS,
 		current_affinity,
-		repository.player_card.to_dict(),
+		repository.player.to_prompt_dict(),
+		_retrieve_world_facts(current_person.entity_id),
+		_world_context_lines(),
 	)
-	pack.session_lines = journal.memory_lines()
+	pack.session_lines = current_person.memory_lines()
 	_events.pack_built.emit(pack)
 
-	# 第 4 步：两层拼装提示词（静态规则层缓存 + 本轮材料层）
-	var sys := prompt_builder.system_prompt(current_npc, repository.worldview_text, current_affinity)
+	# 第 4 步：两层拼装提示词（静态规则层缓存 + 本轮材料层；好感度走材料包 npc_state）
+	var sys := prompt_builder.system_prompt(current_person, repository.worldview_text, repository.mainline_text)
 	var usr := prompt_builder.user_prompt(pack)
 	_events.prompt_built.emit(sys, usr)
 
@@ -361,8 +257,8 @@ func _generate_response(player_text: String, confirmed_history: Array) -> void:
 	_collect_learning(parsed, player_text, pack)
 	var affinity_delta := int(parsed.get("affinity_change", 0))
 	if affinity_delta != 0:
-		current_affinity = AffinityStore.apply_change(current_npc.id, affinity_delta, current_affinity)
-		prompt_builder.clear_cache()
+		# 好感度不在静态层（缓存键无关）：新值经下一轮材料包生效，无需清缓存
+		current_affinity = AffinityStore.apply_change(current_person.entity_id, affinity_delta, current_affinity)
 		_events.affinity_changed.emit(current_affinity, affinity_delta)
 	_events.response.emit(parsed)
 	await _land_response(parsed)
@@ -378,7 +274,7 @@ func _collect_learning(parsed: Dictionary, player_text: String, pack: MaterialPa
 		return
 	var pack_seqs := {}
 	for e in pack.knowledge_entries:
-		pack_seqs[int((e as Dictionary).get("seq", 0))] = true
+		pack_seqs[e.seq] = true
 	_pending_learning.append({
 		"turn": turn_number,
 		"belief_updates": updates,
@@ -401,9 +297,9 @@ func _settle_learning() -> void:
 				continue
 			var change: Dictionary
 			if str(d.get("relation", "")) == "矛盾":
-				change = journal.contradict(ref)
+				change = current_person.contradict(ref)
 			else:
-				change = journal.corroborate(ref, "来客")
+				change = current_person.corroborate(ref, repository.player.canonical_name)
 			if bool(change.get("changed", false)):
 				_emit_event({
 					"event": "belief_updated",
@@ -411,33 +307,55 @@ func _settle_learning() -> void:
 					"before": str(change.get("before", "")),
 					"after": str(change.get("after", "")),
 					"cause": str(change.get("cause", "")),
-					"npc_name": current_npc.display_name,
+					"npc_name": current_person.canonical_name,
 				})
 	_pending_learning.clear()
 
 
+## 检索该 NPC 可及的世界事实（world_model_design §6.3：对话域对正典只读——硬线②）。
+## NPC 所在地点作用域 + 全局提要（两处均 major 全量、minor 封顶保最近）；
+## 不站任何地方的 NPC 只看得到全局提要。
+func _retrieve_world_facts(npc_id: String) -> Array[CanonFact]:
+	var facts: Array[CanonFact] = []
+	var loc := LocationStore.location_of_npc(npc_id)
+	if not loc.is_empty():
+		facts.append_array(CanonStore.facts_for_location(loc))
+	facts.append_array(CanonStore.global_digest())
+	return facts
+
+
+## 统一入口的共享上下文：叙述域近期事件（"此刻之前发生了什么"）——
+## 只含叙述域（对话自身的记录另有槽位，避免重复）；DM 未就绪时为空。
+func _world_context_lines() -> Array[String]:
+	var dm := NarrationController.shared()
+	if dm == null:
+		return []
+	return dm.recent_narration_lines()
+
+
 ## 记忆整理：对话结算后用 LLM 从完整事件流归纳一段记忆写入日志。
 ## LLM 失败时静默跳过（记忆为空不影响其他功能），但仍落盘一次以保住已结算的信念更新。
-## 等待期间即使开了新对话（self.journal 已换成新实例），全部写入与落盘都走
+## 等待期间即使开了新对话（current_person 可能已换对象），全部写入与落盘都走
 ## 捕获的旧引用、存旧 NPC——不触碰新会话的日志实例。
 func _summarize_memory() -> void:
-	if current_npc == null or turn_events.is_empty():
+	if current_person == null or turn_events.is_empty():
 		return
 	var session := _session
-	var npc_id := current_npc.id
-	var journal_ref := journal
-	var prompts := MemorySummarizer.build_prompts(turn_events, current_npc.display_name)
+	var npc_id := current_person.entity_id
+	var person_ref := current_person
+	var player_name := repository.player.canonical_name  # 习得来源缺省：以捕获时的玩家名为准
+	var prompts := MemorySummarizer.build_prompts(turn_events, current_person.canonical_name)
 	_events.llm_request.emit("记忆与知识整理中…")
 	var result: Dictionary = await LLMController.shared().complete_json(
-		str(prompts.get("system", "")), str(prompts.get("user", "")), LLMClient.PURPOSE_DIALOGUE,
+		str(prompts.get("system", "")), str(prompts.get("user", "")), LLMClient.PURPOSE_MEMORY,
 	)
 	if not result.get("ok", false):
-		journal_ref.save(npc_id)
+		CharacterController.save_journal(person_ref, npc_id)
 		return
 	var data: Dictionary = result.get("data", {})
 	var memory_text := MemorySummarizer.extract(str(data.get("memory", "")))
 	if not memory_text.is_empty():
-		journal_ref.add_memory(memory_text, session)
+		person_ref.add_memory(memory_text)
 	for item in data.get("knowledge", []):
 		if not (item is Dictionary):
 			continue
@@ -445,51 +363,33 @@ func _summarize_memory() -> void:
 		var content := str(d.get("content", "")).strip_edges()
 		if content.is_empty():
 			continue
-		journal_ref.learn(content, str(d.get("evidence", "")), str(d.get("speaker", "来客")),
-			int(d.get("turn", 0)), session, str(d.get("note", "")))
-	journal_ref.save(npc_id)
+		# 学习路径实体消解（§5.4）：内容与某条现行正典精确一致 → 记信念引用（不是复制品）；
+		# 匹配不到 → 主观条目。引擎确定性匹配，零开放生成。
+		var fact_id := CanonStore.find_by_content(content)
+		if fact_id > 0:
+			person_ref.learn_ref(fact_id, content, str(d.get("evidence", "")),
+				str(d.get("speaker", player_name)), int(d.get("turn", 0)), session, str(d.get("note", "")))
+		else:
+			person_ref.learn_entry(content, str(d.get("evidence", "")), str(d.get("speaker", player_name)),
+				int(d.get("turn", 0)), session, str(d.get("note", "")))
+	CharacterController.save_journal(person_ref, npc_id)
 
 
-## 结算对话：仅玩家回合可用——结算学习提案并整理记忆后，直接结束本段对话。
-## 结束后状态机拒绝回滚与续聊，因此不存在"已写入知识日志却被回滚"的幽灵信念。
+## 结算对话：仅玩家回合可用——结算学习提案并整理记忆后，直接结束本段对话，
+## 结束后状态机拒绝续聊。
 func _on_cmd_settle_now() -> void:
 	if state != State.WAITING_PLAYER:
 		return
 	end_dialogue("manual_settle")
 
 
-## 回滚到指定轮次之前：删除该轮及之后的所有事件、恢复轮次、清除对应学习提案，
-## 并递增会话序号——在途的审查/生成请求基于即将删除的对话，恢复时被丢弃。
-## turn：要回滚到的轮次（该轮本身的 NPC 回应会被删除，玩家可以重新说这一轮）。
-func _on_cmd_rollback_to_turn(turn: int) -> void:
-	if state == State.ENDED or state == State.IDLE:
-		return
-	if turn < 1 or turn > turn_number:
-		return
-	_session += 1
-	var i := turn_events.size() - 1
-	while i >= 0:
-		var e := turn_events[i] as Dictionary
-		if int(e.get("turn", 0)) >= turn:
-			turn_events.remove_at(i)
-		i -= 1
-	var kept: Array[Dictionary] = []
-	for proposal in _pending_learning:
-		if int((proposal as Dictionary).get("turn", 0)) < turn:
-			kept.append(proposal)
-	_pending_learning = kept
-	turn_number = turn - 1
-	state = State.WAITING_PLAYER
-	_broadcast_state()
-	_events.rolled_back.emit(turn)
-
-
 ## 重置当前 NPC 的知识日志与记忆：删除运行时快照与旧学习日志并重建（回落卡面初始知识）。
 func _on_cmd_reset_memory() -> void:
-	if current_npc == null:
+	if current_person == null:
 		return
-	CharacterController.erase_runtime_state(current_npc.id)
-	_prepare_journal(current_npc)
+	CharacterController.erase_runtime_state(current_person.entity_id)
+	current_person.reset_knowledge_to_author()  # 快照已删：信念回落作者卡消解结果
+	current_person.memories = []
 	_pending_learning.clear()
 	_events.memory_reset.emit()
 
@@ -504,8 +404,8 @@ func _land_response(parsed: Dictionary) -> void:
 		"end_dialogue":
 			_emit_event({
 				"event": "npc_utterance",
-				"speaker": current_npc.id,
-				"npc_name": current_npc.display_name,
+				"speaker": current_person.entity_id,
+				"npc_name": current_person.canonical_name,
 				"text": str(parsed.get("utterance", "")),
 				"claim_type": str(parsed.get("claim_type", "猜测")),
 				"action": "end_dialogue",
@@ -515,8 +415,8 @@ func _land_response(parsed: Dictionary) -> void:
 		"silence":
 			_emit_event({
 				"event": "npc_silence",
-				"speaker": current_npc.id,
-				"npc_name": current_npc.display_name,
+				"speaker": current_person.entity_id,
+				"npc_name": current_person.canonical_name,
 				"description": str(action.get("description", "沉默")),
 				"claim_type": str(parsed.get("claim_type", "猜测")),
 				"action": "silence",
@@ -525,8 +425,8 @@ func _land_response(parsed: Dictionary) -> void:
 		_:
 			_emit_event({
 				"event": "npc_utterance",
-				"speaker": current_npc.id,
-				"npc_name": current_npc.display_name,
+				"speaker": current_person.entity_id,
+				"npc_name": current_person.canonical_name,
 				"text": str(parsed.get("utterance", "")),
 				"claim_type": str(parsed.get("claim_type", "猜测")),
 				"action": "answer",
@@ -565,19 +465,6 @@ func _fallback_response(error_text: String) -> Dictionary:
 # ———— 内部 ————
 
 
-## 构建设定资料快照（人物/场景下拉数据、总览文本），供启动时与 cmd_get_lore 补发。
-func _build_lore_payload() -> void:
-	_lore_characters = []
-	for id in repository.character_ids():
-		var card: CharacterCard = repository.characters[id]
-		_lore_characters.append({"id": id, "label": "%s（%s）" % [card.display_name, id]})
-	_lore_scenes = []
-	for id in repository.scene_ids():
-		var scene: SceneCard = repository.scenes[id]
-		_lore_scenes.append({"id": id, "label": scene.scene_name})
-	_lore_overview = repository.overview_text()
-
-
 ## 供素材包「记忆」槽使用的已确认轮次（仅玩家/NPC 发言与沉默事件，不含过程事件）。
 func _confirmed_history() -> Array:
 	var out: Array = []
@@ -598,6 +485,7 @@ func _emit_event(event: Dictionary) -> void:
 	_events.event_appended.emit(event.duplicate(true))
 
 
-## 广播状态机快照（状态名、轮次、剩余轮次、是否可输入）。
+## 广播状态机快照（状态名、轮次、剩余轮次、是否可输入、是否有在途请求）。
 func _broadcast_state() -> void:
-	_events.state_changed.emit(state_name(), turn_number, maxi(0, MAX_TURNS - turn_number), can_accept_input())
+	var busy := state == State.WAITING_NPC
+	_events.state_changed.emit(state_name(), turn_number, maxi(0, MAX_TURNS - turn_number), can_accept_input(), busy)

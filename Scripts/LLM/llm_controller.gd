@@ -63,9 +63,9 @@ func _exit_tree() -> void:
 # ———— 命令处理（UI 经总线发来） ————
 
 
-## 处理 cmd_set_config：保存 Key/模型并重建客户端。api_key/model：表单值。
-func _on_cmd_set_config(api_key: String, model: String) -> void:
-	set_api_config(api_key, model)
+## 处理 cmd_set_config：保存 Key/模型/输出上限并重建客户端。api_key/model/max_tokens：表单值。
+func _on_cmd_set_config(api_key: String, model: String, max_tokens: int) -> void:
+	set_api_config(api_key, model, max_tokens)
 
 
 ## 处理 cmd_test_connection：用临时值做连通性测试并广播结果。
@@ -75,7 +75,7 @@ func _on_cmd_test(api_key: String, model: String) -> void:
 	_events.test_result.emit(bool(result.get("ok", false)), str(result.get("message", "")))
 
 
-## 处理 cmd_get_config：重发配置快照（api_key/model/mode）。
+## 处理 cmd_get_config：重发配置快照（api_key/model/mode/max_tokens）。
 func _on_cmd_get_config() -> void:
 	_publish_config()
 
@@ -83,10 +83,12 @@ func _on_cmd_get_config() -> void:
 # ———— 配置与状态 ————
 
 
-## 保存并应用新配置（落盘 + 重建客户端 + 广播快照）。key/model_name：新值。
-func set_api_config(key: String, model_name: String) -> void:
+## 保存并应用新配置（落盘 + 重建客户端 + 广播快照）。key/model_name/max_tokens_cap：新值。
+func set_api_config(key: String, model_name: String, max_tokens_cap := -1) -> void:
 	config.api_key = key.strip_edges()
 	config.model = model_name
+	if max_tokens_cap > 0:
+		config.max_tokens = clampi(max_tokens_cap, LlmConfig.MIN_MAX_TOKENS, LlmConfig.MAX_MAX_TOKENS)
 	config.save()
 	_apply_config()
 	_publish_config()
@@ -132,8 +134,8 @@ func complete_json(system_prompt: String, user_prompt: String, purpose := LLMCli
 	var result: Dictionary = await _client.complete(system_prompt, user_prompt, purpose)
 	if not result.get("ok", false):
 		var error_text := str(result.get("error", "未知错误"))
-		# 截断（finish_reason=length）不是网络故障——走保底回应路径而非“退回玩家重试”
-		var is_truncation := error_text.contains("截断")
+		# 截断（客户端以 truncated 标志上报）不是网络故障——走保底回应路径而非“退回玩家重试”
+		var is_truncation := bool(result.get("truncated", false))
 		return {"ok": false, "transport": not is_truncation, "data": null, "notes": [],
 			"raw": "", "error": error_text}
 	var raw := str(result.get("content", ""))
@@ -153,15 +155,16 @@ func complete_json(system_prompt: String, user_prompt: String, purpose := LLMCli
 # ———— 内部 ————
 
 
-## 广播配置快照（api_key/model/mode）。
+## 广播配置快照（api_key/model/mode/max_tokens）。
 func _publish_config() -> void:
-	_events.config.emit(config.api_key, config.model, _client.display_name())
+	_events.config.emit(config.api_key, config.model, _client.display_name(), config.max_tokens)
 
 
 ## 按当前配置重建客户端（离线 Key 为空→Mock，否则 DeepSeek）并广播切换。
+## 旧客户端走 retire()：在途请求等它自然结束后自毁，避免悬挂 await 卡死调用方。
 func _apply_config() -> void:
 	if _client != null:
-		_client.queue_free()
+		_client.retire()
 	if force_offline or config.api_key.strip_edges().is_empty():
 		var mock := MockClient.new()
 		add_child(mock)
@@ -170,6 +173,7 @@ func _apply_config() -> void:
 		var deepseek := DeepSeekClient.new()
 		deepseek.api_key = config.api_key
 		deepseek.model = config.model
+		deepseek.max_tokens = config.max_tokens
 		add_child(deepseek)
 		_client = deepseek
 	_events.mode_changed.emit(_client.display_name())

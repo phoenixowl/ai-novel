@@ -1,7 +1,7 @@
 class_name MockClient
 extends LLMClient
 ## 离线示例客户端（LLM 层）：未配置 API Key 时由 LLMController 自动启用。
-## 按 purpose 区分请求类型（输入审查 / 对话生成），输出与真实模型完全相同的
+## 按 purpose 区分请求类型（输入审查 / 对话生成 / 记忆提取），输出与真实模型完全相同的
 ## JSON 回应格式，便于在无网络、无 Key 的环境下走通全部流程与界面。
 ## 部分样本故意裹上 markdown 围栏，用于验证解析器的容错能力。
 ## 输入审查由内置近似规则应答（关键词/正则）：真实环境由 LLM 判断。
@@ -18,14 +18,29 @@ func is_offline() -> bool:
 	return true
 
 
-## 模拟一次补全：延迟后按 purpose 应答——输入审查走近似规则，
-## 对话生成按玩家话题挑选预制样本。返回值与真实客户端同构。
-func complete(system_prompt: String, user_prompt: String, purpose := PURPOSE_DIALOGUE) -> Dictionary:
+## 模拟一次补全：延迟后按 purpose 应答（DM 路由/记忆提取/进场描述/事实提取各有样本；
+## 对话生成按玩家话题挑选预制样本）。返回值与真实客户端同构。
+func complete(_system_prompt: String, user_prompt: String, purpose := PURPOSE_DIALOGUE) -> Dictionary:
+	_busy = true
 	await get_tree().create_timer(SAMPLE_DELAY).timeout
-	if system_prompt.contains("提取器"):
+	_release_busy()
+	if purpose == PURPOSE_DM:
+		return {"ok": true, "content": _dm_route_sample(user_prompt), "error": ""}
+	if purpose == PURPOSE_MEMORY:
 		return {"ok": true, "content": JSON.stringify({
 			"memory": "上次有个生面孔来茶馆，问起黑潮带拳手的事，我提醒他别多管闲事。",
 			"knowledge": [],
+		}), "error": ""}
+	if purpose == PURPOSE_ENTRY_DESCRIBE:
+		return {"ok": true, "content": JSON.stringify({
+			"narration": "你放慢脚步走进这里。汲取器柱的低鸣贴着地面涌过来，暖黄的灯一盏接一盏在头顶亮起，把来路吞进暮色里。有人从你身边经过，没有回头——这地方见惯了生面孔。",
+		}), "error": ""}
+	if purpose == PURPOSE_FACT_EXTRACT:
+		return {"ok": true, "content": JSON.stringify({
+			"facts": [
+				{"ref": 0, "content": "书房书架第三层藏有一本靛蓝封皮的薄册，扉页有前任主人的名字", "weight": "major", "adopted_from_player": false},
+				{"ref": 0, "content": "书房里积着厚厚的灰，很久没有客人来过", "weight": "minor", "adopted_from_player": false},
+			],
 		}), "error": ""}
 	if purpose == PURPOSE_INPUT_REVIEW:
 		return {"ok": true, "content": _review_sample(user_prompt), "error": ""}
@@ -35,7 +50,173 @@ func complete(system_prompt: String, user_prompt: String, purpose := PURPOSE_DIA
 	return {"ok": true, "content": sample, "error": ""}
 
 
-# ———— 输入审查（离线近似规则；真实环境由 LLM 判断） ————
+# ———— DM 路由样本（统一入口的离线近似；真实环境由 LLM 裁决） ————
+
+
+## 离线 DM 近似应答：按输入特征判路由——注入词拒绝；说话+行动 mixed；
+## 只说话 speech（目标优先取输入点名的在场人物，否则当前对象，否则首位在场）；
+## 其余 action。user_prompt：DM 材料层提示词（含在场人物与当前交谈对象标记）。
+func _dm_route_sample(user_prompt: String) -> String:
+	var text := _first_quoted_after(user_prompt, "■ 玩家输入")
+	var present := _ids_after(user_prompt, "■ 在场人物")
+	var partner := _id_on_line(user_prompt, "■ 当前正在交谈")
+	var names := _names_of_present(user_prompt)
+	# 点名优先：输入里出现了哪位在场人物的名字，说话目标就是他
+	var named := ""
+	for pair in names:
+		var pair_id := str((pair as Dictionary).get("id", ""))
+		var pair_name := str((pair as Dictionary).get("name", ""))
+		if not pair_id.is_empty() and not pair_name.is_empty() and text.contains(pair_name):
+			named = pair_id
+
+	var route := "action"
+	var reason := ""
+	if _contains_any(text, ["忽略", "系统", "提示词", "规则", "jailbreak", "prompt"]):
+		route = "reject"
+		reason = "注入或元指令：统一入口只接受世界内的行动与话语。"
+	else:
+		var has_speech := text.contains("“") or text.contains("”") \
+			or _contains_any(text, ["说", "问", "告诉", "请", "麻烦", "谢谢", "你好", "打听"])
+		var has_action := _contains_any(text, ["抽", "翻", "走", "拿", "看", "检查", "打开", "去", "找", "买", "喝"])
+		if has_speech and has_action:
+			route = "mixed"
+		elif has_speech:
+			route = "speech"
+
+	var npc := ""
+	if route == "speech" or route == "mixed":
+		if not named.is_empty():
+			npc = named
+		elif not partner.is_empty():
+			npc = partner
+		elif not present.is_empty():
+			npc = str(present[0])
+
+	var speech := _first_quoted_in(text)
+	if speech.is_empty():
+		speech = text
+	var action_part := ""
+	var narration := ""
+	var outcome := ""
+	if route == "action" or route == "mixed":
+		action_part = text
+		if route == "mixed":
+			narration = "你一边手上忙活着，一边把话头递了出去。周围的人把你的举动看在眼里。"
+		else:
+			narration = "你依言做了。周围的一切安静地回应你——没有意外，也没有惊喜。"
+		outcome = "success"
+	return JSON.stringify({
+		"route": route,
+		"npc": npc,
+		"action": action_part,
+		"narration": narration,
+		"outcome": outcome,
+		"speech": speech if route == "speech" or route == "mixed" else "",
+		"reason": reason,
+	}, "  ")
+
+
+## 解析提示词中锚点行之后全部 “[id]” 标记（跳过锚点整行，到下一区块为止）。
+static func _ids_after(text: String, anchor: String) -> Array:
+	var out: Array = []
+	var index := text.find(anchor)
+	if index == -1:
+		return out
+	var rest := _skip_line(text, index)
+	var next_block := rest.find("\n■")
+	if next_block != -1:
+		rest = rest.substr(0, next_block)
+	var regex := RegEx.create_from_string("\\[([A-Za-z0-9_]+)\\]")
+	for found in regex.search_all(rest):
+		out.append(str(found.get_string(1)))
+	return out
+
+
+## 从 position 所在行的下一行开始截取（跳过锚点行——其说明文字含 [id] 示例）。
+static func _skip_line(text: String, position: int) -> String:
+	var line_end := text.find("\n", position)
+	if line_end == -1:
+		return ""
+	return text.substr(line_end + 1)
+
+
+## 解析提示词中锚点行之后的首个 “[id]” 标记（当前交谈对象）。
+static func _id_after(text: String, anchor: String) -> String:
+	var ids := _ids_after(text, anchor)
+	return str(ids[0]) if not ids.is_empty() else ""
+
+
+## 解析锚点**同一行**内的 “[id]” 标记（“■ 当前正在交谈：[id] 名字”的 id 与锚点同行）。
+static func _id_on_line(text: String, anchor: String) -> String:
+	var index := text.find(anchor)
+	if index == -1:
+		return ""
+	var line_end := text.find("\n", index)
+	var line := text.substr(index, line_end - index) if line_end != -1 else text.substr(index)
+	var regex := RegEx.create_from_string("\\[([A-Za-z0-9_]+)\\]")
+	var found := regex.search(line)
+	return str(found.get_string(1)) if found != null else ""
+
+
+## 解析在场人物清单行的 {id, name}（格式 “· [id] 规范名——身份”；跳过锚点整行，到下一区块为止）。
+static func _names_of_present(text: String) -> Array:
+	var out: Array = []
+	var index := text.find("■ 在场人物")
+	if index == -1:
+		return out
+	var rest := _skip_line(text, index)
+	var next_block := rest.find("\n■")
+	if next_block != -1:
+		rest = rest.substr(0, next_block)
+	var regex := RegEx.create_from_string("\\[([A-Za-z0-9_]+)\\]\\s*([^\\n]+?)\\s*(?:——|\\n)")
+	for found in regex.search_all(rest):
+		out.append({"id": str(found.get_string(1)), "name": str(found.get_string(2)).strip_edges()})
+	return out
+
+
+## 取文本中首个中文引号段（无引号返回空串）。
+static func _first_quoted_in(text: String) -> String:
+	var start := text.find("“")
+	if start == -1:
+		return ""
+	var rest := text.substr(start + 1)
+	var end := rest.find("”")
+	if end == -1:
+		return ""
+	return rest.substr(0, end).strip_edges()
+
+
+# ———— 旁白样本（与真实回应同构：narration/outcome/facts） ————
+
+
+## 按行动内容挑选旁白样本：翻书/取物 → success + 新事实；否则通用探索样本（partial）。
+## user_prompt：旁白材料层提示词。
+func _narration_sample(user_prompt: String) -> String:
+	var action := _first_quoted_after(user_prompt, "■ 玩家刚才的行动声明")
+	if _contains_any(action, ["书", "翻", "抽", "取", "拿", "捡"]):
+		return sample_narration_gain()
+	return sample_narration_generic()
+
+
+## 翻书取物样本（已弃用 2026-10：回合生成由 DM 取代，discoveries 暂时静默；
+## 保留样本供参考，不再含 discoveries 字段）。
+static func sample_narration_gain() -> String:
+	return JSON.stringify({
+		"narration": "你从书架第三层抽出一本薄册，封皮是褪色的靛蓝，边角被摩挲得发亮。翻开扉页，一行小字写着前任主人的名字，墨迹已经很淡了。你把它揣进怀里——这间书房似乎很久没有客人来过。",
+		"outcome": "success",
+	}, "  ")
+
+
+## 通用探索样本：partial——方向可行但缺条件（演示裁决分级的另一档）。
+static func sample_narration_generic() -> String:
+	return JSON.stringify({
+		"narration": "你在这片街区走了一段。汲取器低沉的嗡鸣贴着地面爬行，路灯把你的影子拉得很长。你想打听的事，街坊们要么摇头，要么把话题岔开——这座城市对生面孔的耐心，比想象中更短。眼下你还缺一个能让他们开口的理由。",
+		"outcome": "partial",
+		"facts": [],
+	}, "  ")
+
+
+# ———— 输入审查（已弃用 2026-10：统一入口后审查由 DM 路由取代；保留供旧引用） ————
 
 
 ## 输入审查的离线近似应答：关键词/正则判定动作与注入，输出 approve/reject JSON。

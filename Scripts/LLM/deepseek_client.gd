@@ -3,24 +3,23 @@ extends LLMClient
 ## DeepSeek API 客户端（OpenAI 兼容的 chat/completions 协议）。
 ## API Key 由用户在 UI『API 设置』中填写，保存在 user://config.cfg；
 ## 为空时引擎不会使用本客户端，而是切换到离线示例客户端。
+##
+## 连接健壮性：每次请求新建一个短命的 HTTPRequest 子节点、用完即弃——
+## HTTPRequest 在异常网络失败（断网/TLS 中断）后可能永久停留在"请求中"状态
+##（use_threads 的已知缺陷类），复用节点会让之后所有请求立即报错且 await 永不恢复；
+## 一次性节点保证跨请求零共享状态。另设看门狗竞速：引擎超时失灵时强制按
+## 传输失败返回，让上游状态机（DM 退回输入 / 对话退回玩家轮）照常恢复。
 
 
 const CHAT_URL := "https://api.deepseek.com/chat/completions"
 const MODELS_URL := "https://api.deepseek.com/models"
 const TIMEOUT_SECONDS := 60.0
+## 看门狗余量：引擎自身超时之外的兜底窗口
+const WATCHDOG_MARGIN := 10.0
 
 var api_key := ""
 var model := LlmConfig.DEFAULT_MODEL
-
-var _http: HTTPRequest
-
-
-## 创建内部 HTTPRequest 并配置超时（60s，线程模式）。
-func _ready() -> void:
-	_http = HTTPRequest.new()
-	_http.timeout = TIMEOUT_SECONDS
-	_http.use_threads = true
-	add_child(_http)
+var max_tokens := LlmConfig.DEFAULT_MAX_TOKENS  # 单次补全输出上限（LLMController 按配置下发）
 
 
 func display_name() -> String:
@@ -44,7 +43,7 @@ func complete(system_prompt: String, user_prompt: String, _purpose := PURPOSE_DI
 			{"role": "user", "content": user_prompt},
 		],
 		"temperature": 0.8,
-		"max_tokens": 3072,
+		"max_tokens": clampi(max_tokens, LlmConfig.MIN_MAX_TOKENS, LlmConfig.MAX_MAX_TOKENS),
 	}
 	# JSON 输出模式：官方文档示例基于 deepseek-flash；v4-pro 未明确支持，暂不开启。
 	# 官方要求提示词中出现 “json” 字样并给出格式示例（静态层已满足）。
@@ -54,10 +53,12 @@ func complete(system_prompt: String, user_prompt: String, _purpose := PURPOSE_DI
 		"Content-Type: application/json",
 		"Authorization: Bearer " + api_key.strip_edges(),
 	])
-	var err := _http.request(CHAT_URL, headers, HTTPClient.METHOD_POST, JSON.stringify(body))
-	if err != OK:
-		return {"ok": false, "content": "", "error": "请求发起失败（错误码 %d）" % err}
-	var response: Array = await _http.request_completed
+	_busy = true
+	var outcome: Dictionary = await _request(CHAT_URL, headers, HTTPClient.METHOD_POST, JSON.stringify(body))
+	_release_busy()
+	if not outcome.get("ok", false):
+		return {"ok": false, "content": "", "error": str(outcome.get("error", "未知错误"))}
+	var response: Array = outcome.get("response", [])
 	var result: int = response[0]
 	var response_code: int = response[1]
 	var response_body: PackedByteArray = response[3]
@@ -76,10 +77,11 @@ func complete(system_prompt: String, user_prompt: String, _purpose := PURPOSE_DI
 		var content: Variant = message.get("content", "")
 		if content is String and not (content as String).is_empty():
 			# 截断检测：finish_reason=="length" 表明输出被 max_tokens 切断，
-			# 截断的 JSON 无法解析——提前报出具体原因，不留给解析器猜
+			# 截断的 JSON 无法解析——以 truncated 标志上报具体原因，供上层区分传输故障
 			var finish_reason := str(first.get("finish_reason", ""))
 			if finish_reason == "length":
-				return {"ok": false, "content": "", "error": "输出被截断（达到 max_tokens 上限，finish_reason=length）"}
+				return {"ok": false, "content": "", "truncated": true,
+					"error": "输出被截断（达到 max_tokens 上限，finish_reason=length）"}
 			return {"ok": true, "content": content, "error": ""}
 		return {"ok": false, "content": "", "error": "响应中没有可用的回复内容"}
 	return {"ok": false, "content": "", "error": "响应中没有可用的回复内容"}
@@ -90,10 +92,10 @@ func test_connection() -> Dictionary:
 	if api_key.strip_edges().is_empty():
 		return {"ok": false, "message": "请先填写 API Key。"}
 	var headers := PackedStringArray(["Authorization: Bearer " + api_key.strip_edges()])
-	var err := _http.request(MODELS_URL, headers, HTTPClient.METHOD_GET)
-	if err != OK:
-		return {"ok": false, "message": "请求发起失败（错误码 %d）" % err}
-	var response: Array = await _http.request_completed
+	var outcome: Dictionary = await _request(MODELS_URL, headers, HTTPClient.METHOD_GET)
+	if not outcome.get("ok", false):
+		return {"ok": false, "message": str(outcome.get("error", "未知错误"))}
+	var response: Array = outcome.get("response", [])
 	var result: int = response[0]
 	var response_code: int = response[1]
 	if result != HTTPRequest.RESULT_SUCCESS:
@@ -105,6 +107,44 @@ func test_connection() -> Dictionary:
 
 
 # ———— 内部 ————
+
+
+## 发起一次 HTTP 请求并等待完成。返回：
+##   {"ok": true, "response": [result, code, headers, body]}——request_completed 已到达
+##   {"ok": false, "error": "…"}——请求发起失败，或看门狗超时（引擎层卡死，永不完成）
+## 每次调用新建短命 HTTPRequest 子节点、用后即弃：无论哪条路径先返回都 queue_free，
+## 一次异常网络失败留下的脏状态不可能带入下一次请求。
+## 等待方式：共享旗标 + 帧轮询（Godot 4.7 的 await 不支持信号数组的"先到者胜"——
+## 实测立即返回数组本身，故 request_completed 与看门狗各自置旗标，先置者胜）。
+func _request(url: String, headers: PackedStringArray, method: int, body := "") -> Dictionary:
+	var http := HTTPRequest.new()
+	http.timeout = TIMEOUT_SECONDS
+	http.use_threads = true
+	add_child(http)
+	var err := http.request(url, headers, method, body)
+	if err != OK:
+		http.queue_free()
+		return {"ok": false, "error": "请求发起失败（错误码 %d）" % err}
+	# 看门狗竞速：引擎超时失灵（request_completed 永不发出）时由定时器兜底置旗标
+	var settled := {"done": false, "args": []}
+	http.request_completed.connect(
+		func(result: int, code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
+			if not settled["done"]:
+				settled["done"] = true
+				settled["args"] = [result, code, headers, body]
+	)
+	var watchdog := get_tree().create_timer(TIMEOUT_SECONDS + WATCHDOG_MARGIN)
+	watchdog.timeout.connect(func() -> void:
+		if not settled["done"]:
+			settled["done"] = true
+			settled["args"] = [])
+	while not settled["done"]:
+		await get_tree().process_frame
+	http.queue_free()
+	var response: Array = settled["args"]
+	if response.is_empty():
+		return {"ok": false, "error": "请求超时未响应（看门狗 %.0f 秒）——网络可能已中断。" % (TIMEOUT_SECONDS + WATCHDOG_MARGIN)}
+	return {"ok": true, "response": response}
 
 
 ## 从 API 错误响应体提取人类可读信息；解析失败返回原文前 200 字。text：响应体 JSON 文本。

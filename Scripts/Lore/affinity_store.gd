@@ -22,25 +22,19 @@ const TIERS := [
 
 
 ## 读某 NPC 的好感度；无记录时返回 initial（人物卡初始值）。npc_id：人物卡 id。
+## 读到的值钳位到 [-100, 100]（防手改文件越界直通档位计算）。
 static func get_value(npc_id: String, initial := 0) -> int:
-	var path := "%s/%s.json" % [DIR, npc_id]
-	if not FileAccess.file_exists(path):
+	var parsed := JsonTool.read_json_file("%s/%s.json" % [DIR, npc_id])
+	if parsed.is_empty():
 		return initial
-	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if parsed is Dictionary:
-		return int((parsed as Dictionary).get("value", initial))
-	return initial
+	return clampi(int(parsed.get("value", initial)), MIN_VALUE, MAX_VALUE)
 
 
 ## 写某 NPC 的好感度（自动钳位到 [-100, 100]）。npc_id：人物卡 id；value：新值。
 static func set_value(npc_id: String, value: int) -> void:
 	DirAccess.make_dir_recursive_absolute(DIR)
-	var clamped := clampi(value, MIN_VALUE, MAX_VALUE)
-	var data := {"value": clamped}
-	var file := FileAccess.open("%s/%s.json" % [DIR, npc_id], FileAccess.WRITE)
-	if file != null:
-		file.store_string(JSON.stringify(data))
-		file.close()
+	JsonTool.write_json_file("%s/%s.json" % [DIR, npc_id],
+		{"value": clampi(value, MIN_VALUE, MAX_VALUE)})
 
 
 ## 增减好感度（每轮最多 ±10，总量钳位）。返回实际变化后的新值。

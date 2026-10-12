@@ -3,15 +3,15 @@ extends RefCounted
 ## 设定资料库（Lore 层）：【流程一：设定资料】
 ## 从固定目录 res://settings/ 加载作者手动放置的设定（全部只读）：
 ##   worldview.txt      世界观（纯文本，整段注入提示词静态层）
+##   mainline.txt       主线基调（模糊方向感，可为空；旁白与对话静态层共用）
+##   canon.json         作者正典（由 CanonStore 播种，本类不读）
+##   player.json        玩家默认卡
 ##   factions.json      组织（id / 名称 / 介绍 / 成员列表：名称+职位）
-##   characters/*.json  人物卡（一张一个文件；knowledge 为内联初始知识数组
-##                       [{content, source, trust}]，即该 NPC 知识日志的初始部分；
-##                       factions 为所属组织 id 列表）
-##   scenes/*.json      场景卡（环境素材 + 氛围素材 + 开场情境）
-##   memory/*.json      跨对话背景摘要（可选，存在则注入素材包的记忆槽；
-##                       运行时习得的知识与会话摘要持久化在 user://journals/）
+##   characters/*.json  人物卡 → Person 模型
+##   scenes/*.json      场景卡 → Location 模型
+##   memory/*.json      跨对话背景摘要（可选，npc_id + summary）
 ## 所有解析问题记入 load_report，不中断加载；组织引用做悬空校验。
-## 注意：res://settings/ 是作者数据目录，本文件是加载它的代码（Scripts/Lore/）。
+## 运行期状态合并：gen_ 人物卡（快照 persona）→ Person；人物快照 journal 区 → Person.knowledge/memories。
 
 const SnapshotStore := preload("res://Scripts/Lore/snapshot_store.gd")
 
@@ -19,12 +19,17 @@ const SETTING_ROOT := "res://settings"
 const FACTIONS_FILE := SETTING_ROOT + "/factions.json"
 
 var worldview_text := ""
-var player_card := PlayerCard.new()
-var factions := {}        # id -> Faction（组织）
-var characters := {}      # id -> CharacterCard
-var scenes := {}          # id -> SceneCard
-var memory := {}          # npc_id -> String（跨对话背景摘要）
+var mainline_text := ""     # 主线基调（模糊方向感，可为空；旁白与对话静态层共用）
+var player: Person          # 玩家模型（is_player = true）
+var factions: Dictionary = {}   # id → Faction
+var characters: Dictionary = {} # id → Person
+var scenes: Dictionary = {}     # id → Location
+var memory: Dictionary = {}     # npc_id → String（跨对话背景摘要）
 var load_report: Array[String] = []
+
+
+func _init() -> void:
+	player = Person.from_card_dict({"id": "player", "name": "来客"}, true)
 
 
 ## 加载全部设定；返回是否至少有人物卡与场景卡。解析问题记入 load_report 不中断。
@@ -38,11 +43,14 @@ func load_all() -> bool:
 	worldview_text = _read_text(SETTING_ROOT + "/worldview.txt")
 	if worldview_text.is_empty():
 		load_report.append("未找到 worldview.txt，世界观为空")
+	mainline_text = _read_text(SETTING_ROOT + "/mainline.txt")
 	_load_player()
 
 	_load_factions()
 	_load_characters()
+	_load_gen_characters()
 	_apply_persona_snapshots()
+	_attach_journals()
 	_resolve_factions()
 	_load_scenes()
 	_load_memory()
@@ -54,22 +62,21 @@ func load_all() -> bool:
 	return ok
 
 
-## 加载玩家人物卡：先取 res://settings/player.json（作者默认），再叠加 user://player.json（运行时修改）。
+## 加载玩家模型：先取 res://settings/player.json（作者默认），再叠加 user://player.json（运行时修改）。
 func _load_player() -> void:
-	var data := _parse_json_file(SETTING_ROOT + "/player.json")
+	var data := JsonTool.read_json_file(SETTING_ROOT + "/player.json")
 	if not data.is_empty():
-		player_card = PlayerCard.from_dict(data)
-	# 运行时覆盖
-	if FileAccess.file_exists("user://player.json"):
-		var override: Variant = JSON.parse_string(FileAccess.get_file_as_string("user://player.json"))
-		if override is Dictionary:
-			var d: Dictionary = override
-			if d.has("name"):
-				player_card.display_name = str(d["name"])
-			if d.has("identity"):
-				player_card.identity = str(d["identity"])
-			if d.has("appearance"):
-				player_card.appearance = str(d["appearance"])
+		player = Person.from_card_dict(data, true)
+	else:
+		player = Person.from_card_dict({"id": "player", "name": "来客"}, true)
+	var override := JsonTool.read_json_file("user://player.json")
+	if not override.is_empty():
+		if override.has("name"):
+			player.canonical_name = str(override["name"])
+		if override.has("identity"):
+			player.identity = str(override["identity"])
+		if override.has("appearance"):
+			player.appearance = str(override["appearance"])
 
 
 # ———— 查询接口（供引擎与 UI 使用） ————
@@ -114,35 +121,34 @@ func overview_text() -> String:
 	p.append("[b]【组织】（%d 个）[/b]" % factions.size())
 	for id in factions:
 		var faction: Faction = factions[id]
-		p.append("● %s（%s）" % [faction.faction_name, id])
+		p.append("● %s（%s）" % [faction.canonical_name, id])
 		p.append("  介绍：%s" % faction.description)
 		p.append("  成员：%s" % "、".join(_member_lines(faction)))
 		p.append("")
 	p.append("[b]【人物卡】（%d 张）[/b]" % characters.size())
 	for id in character_ids():
-		var card: CharacterCard = characters[id]
-		p.append("● %s（%s）" % [card.display_name, id])
-		p.append("  身份：%s" % card.identity)
-		p.append("  人物设定：%s" % card.profile)
-		p.append("  初始好感度：%d" % card.affinity)
-		if not card.memberships.is_empty():
-			p.append("  所属组织：%s" % "、".join(_membership_lines(card)))
+		var person: Person = characters[id]
+		p.append("● %s（%s）" % [person.canonical_name, id])
+		p.append("  身份：%s" % person.identity)
+		p.append("  人物设定：%s" % person.profile)
+		p.append("  初始好感度：%d" % person.affinity)
+		if not person.memberships.is_empty():
+			p.append("  所属组织：%s" % "、".join(_membership_lines(person)))
 		p.append("  初始知识（%d 条，日志 [%d..%d]）：" % [
-			card.knowledge.size(), 1, card.knowledge.size(),
+			person.knowledge.size(), 1, person.knowledge.size(),
 		])
-		for entry in card.knowledge:
-			var e := entry as Dictionary
-			var tag := "%s · %s" % [str(e.get("source", "")), str(e.get("trust", ""))]
-			if str(e.get("trust", "")) == KnowledgeJournal.TRUST_VOIDED:
-				tag = "%s · 已失效" % str(e.get("source", ""))
-			p.append("    · （%s）%s" % [tag, str(e.get("content", ""))])
+		for entry in person.knowledge:
+			var tag := "%s · %s" % [entry.speaker, KnowledgeEntry.trust_to_key(entry.trust)]
+			if entry.status == KnowledgeEntry.EntryStatus.VOIDED:
+				tag = "%s · 已失效" % entry.speaker
+			p.append("    · （%s）%s" % [tag, entry.content])
 		if memory.has(id):
 			p.append("  背景摘要：" + str(memory[id]))
 		p.append("")
 	p.append("[b]【场景卡】（%d 张）[/b]" % scenes.size())
 	for id in scene_ids():
-		var scene: SceneCard = scenes[id]
-		p.append("● %s（%s）" % [scene.scene_name, id])
+		var scene: Location = scenes[id]
+		p.append("● %s（%s）" % [scene.canonical_name, id])
 		if not scene.environment.is_empty():
 			p.append("  环境与陈设：%s" % scene.environment)
 		if not scene.atmosphere.is_empty():
@@ -156,11 +162,11 @@ func overview_text() -> String:
 # ———— 内部：目录扫描与文件解析 ————
 
 
-## 扫描 characters/*.json 并解析人物卡（坏文件记入加载报告并跳过）。
+## 扫描 characters/*.json 并解析为 Person（坏文件记入加载报告并跳过）。
 func _load_characters() -> void:
 	var dir_path := SETTING_ROOT + "/characters"
 	for file_name in _json_files_at(dir_path):
-		var data := _parse_json_file(dir_path + "/" + file_name)
+		var data := JsonTool.read_json_file(dir_path + "/" + file_name)
 		if data.is_empty():
 			load_report.append("人物卡解析失败：characters/%s（不是有效 JSON）" % file_name)
 			continue
@@ -172,16 +178,40 @@ func _load_characters() -> void:
 		else:
 			items.append(data)
 		for item in items:
-			var card := CharacterCard.from_dict(item)
-			if card.is_valid():
-				characters[card.id] = card
+			var person := Person.from_card_dict(item)
+			if person.is_valid():
+				characters[person.entity_id] = person
 			else:
 				load_report.append("人物卡缺少 id 或姓名：characters/%s" % file_name)
 
 
+## 合并动态生成的人物卡（world_model_design §3.6）：gen_ 前缀的运行时快照 persona 区
+## 即卡面（discoveries 落地时写入）。作者卡优先——同 id 不可能（gen_ 前缀独占）。
+func _load_gen_characters() -> void:
+	var dir := DirAccess.open("user://characters")
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while not file_name.is_empty():
+		if not dir.current_is_dir() and file_name.begins_with("gen_") and file_name.ends_with(".json"):
+			var npc_id := file_name.trim_suffix(".json")
+			var persona := SnapshotStore.read_persona(npc_id)
+			if persona.has("name") and not characters.has(npc_id):
+				var person := Person.new()
+				person.entity_id = npc_id
+				person.source = Entity.EntitySource.GEN
+				person.canonical_name = str(persona["name"])
+				person.identity = str(persona.get("identity", ""))
+				person.profile = str(persona.get("profile", ""))
+				characters[npc_id] = person
+		file_name = dir.get_next()
+	dir.list_dir_end()
+
+
 ## 组织：全部组织一个文件（id / 名称 / 介绍 / 成员：名称+职位）
 func _load_factions() -> void:
-	var data := _parse_json_file(FACTIONS_FILE)
+	var data := JsonTool.read_json_file(FACTIONS_FILE)
 	if data.is_empty():
 		load_report.append("组织文件解析失败：%s（不存在或不是有效 JSON）" % FACTIONS_FILE)
 		return
@@ -193,47 +223,58 @@ func _load_factions() -> void:
 	for item in raw_factions:
 		if not (item is Dictionary):
 			continue
-		var faction := Faction.from_dict(item)
+		var faction := Faction.from_faction_dict(item)
 		if not faction.is_valid():
 			load_report.append("组织缺少 id 或名称（已跳过）")
 			continue
-		if factions.has(faction.id):
-			load_report.append("组织 id 重复：%s（已跳过后者）" % faction.id)
+		if factions.has(faction.entity_id):
+			load_report.append("组织 id 重复：%s（已跳过后者）" % faction.entity_id)
 			continue
-		factions[faction.id] = faction
+		factions[faction.entity_id] = faction
 		count += 1
 	load_report.append("组织：加载 %d 个" % count)
 
 
 ## 应用人物快照的 persona 区（字段级覆盖：快照有该键才接管，缺失跟随作者卡面）。
-## 在组织解析之前调用——职位按 display_name 匹配，改名后据此生效。
+## 在组织解析之前调用——职位按规范名匹配，改名后据此生效。
 func _apply_persona_snapshots() -> void:
 	for id in characters:
 		var persona := SnapshotStore.read_persona(id)
 		if persona.is_empty():
 			continue
-		var card: CharacterCard = characters[id]
+		var person: Person = characters[id]
 		if persona.has("name") and not (persona["name"] as String).is_empty():
-			card.display_name = persona["name"]
+			person.canonical_name = persona["name"]
 		if persona.has("identity"):
-			card.identity = persona["identity"]
+			person.identity = persona["identity"]
 		if persona.has("profile"):
-			card.profile = persona["profile"]
+			person.profile = persona["profile"]
 
 
-## 解析人物卡所属组织 → memberships（faction 引用 + 按 display_name 在成员表匹配职位）；
+## 人物快照的 journal 区整体接管 Person 的信念与记忆（存在才接管，否则保持作者消解结果）。
+func _attach_journals() -> void:
+	for id in characters:
+		var person: Person = characters[id]
+		var data := SnapshotStore.read_journal(id)
+		if data.is_empty():
+			continue
+		person.load_journal_dicts(data.get("knowledge", []), data.get("memories", []),
+			int(data.get("next_seq", 0)))
+
+
+## 解析人物卡所属组织 → memberships（faction 引用 + 按规范名在成员表匹配职位）；
 ## 悬空引用记入报告；不在成员表中的职位留空（容错：允许只登记归属不列成员）。
 func _resolve_factions() -> void:
 	for id in characters:
-		var card: CharacterCard = characters[id]
-		for faction_id in card.faction_ids:
+		var person: Person = characters[id]
+		for faction_id in person.faction_ids:
 			var faction: Faction = factions.get(faction_id)
 			if faction == null:
 				load_report.append("人物 %s 所属的组织 %s 不存在（悬空引用）" % [id, faction_id])
 				continue
-			card.memberships.append({
+			person.memberships.append({
 				"faction": faction,
-				"position": faction.position_of(card.display_name),
+				"position": faction.position_of(person.canonical_name),
 			})
 
 
@@ -241,7 +282,7 @@ func _resolve_factions() -> void:
 func _knowledge_count() -> int:
 	var count := 0
 	for id in characters:
-		count += (characters[id] as CharacterCard).knowledge.size()
+		count += (characters[id] as Person).knowledge.size()
 	return count
 
 
@@ -252,23 +293,23 @@ func _member_lines(faction: Faction) -> Array[String]:
 	return lines
 
 
-func _membership_lines(card: CharacterCard) -> Array[String]:
+func _membership_lines(person: Person) -> Array[String]:
 	var lines: Array[String] = []
-	for membership in card.memberships:
+	for membership in person.memberships:
 		var faction: Faction = membership.get("faction")
 		var position := str(membership.get("position", ""))
 		if position.is_empty():
-			lines.append(faction.faction_name)
+			lines.append(faction.canonical_name)
 		else:
-			lines.append("%s（%s）" % [faction.faction_name, position])
+			lines.append("%s（%s）" % [faction.canonical_name, position])
 	return lines
 
 
-## 扫描 scenes/*.json 并解析场景卡。
+## 扫描 scenes/*.json 并解析为 Location。
 func _load_scenes() -> void:
 	var dir_path := SETTING_ROOT + "/scenes"
 	for file_name in _json_files_at(dir_path):
-		var data := _parse_json_file(dir_path + "/" + file_name)
+		var data := JsonTool.read_json_file(dir_path + "/" + file_name)
 		if data.is_empty():
 			load_report.append("场景卡解析失败：scenes/%s（不是有效 JSON）" % file_name)
 			continue
@@ -280,9 +321,9 @@ func _load_scenes() -> void:
 		else:
 			items.append(data)
 		for item in items:
-			var card := SceneCard.from_dict(item)
-			if card.is_valid():
-				scenes[card.id] = card
+			var location := Location.from_scene_dict(item)
+			if location.is_valid():
+				scenes[location.entity_id] = location
 			else:
 				load_report.append("场景卡缺少 id 或场景名：scenes/%s" % file_name)
 
@@ -291,7 +332,7 @@ func _load_scenes() -> void:
 func _load_memory() -> void:
 	var dir_path := SETTING_ROOT + "/memory"
 	for file_name in _json_files_at(dir_path):
-		var data := _parse_json_file(dir_path + "/" + file_name)
+		var data := JsonTool.read_json_file(dir_path + "/" + file_name)
 		if data.is_empty():
 			continue
 		var npc_id := str(JsonTool.pick(data, ["npc_id", "人物"], ""))
@@ -321,14 +362,3 @@ func _read_text(path: String) -> String:
 	if not FileAccess.file_exists(path):
 		return ""
 	return (FileAccess.get_file_as_string(path) as String).trim_prefix("\uFEFF").strip_edges()
-
-
-## 读并解析 JSON 文件；失败返回空 Dictionary。path：文件路径。
-func _parse_json_file(path: String) -> Dictionary:
-	if not FileAccess.file_exists(path):
-		return {}
-	var text := (FileAccess.get_file_as_string(path) as String).trim_prefix("\uFEFF")
-	var parsed: Variant = JSON.parse_string(text)
-	if parsed is Dictionary:
-		return parsed
-	return {}

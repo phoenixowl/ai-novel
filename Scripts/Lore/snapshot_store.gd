@@ -22,18 +22,12 @@ static func exists(npc_id: String) -> bool:
 
 
 static func _read(npc_id: String) -> Dictionary:
-	if not exists(npc_id):
-		return {}
-	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(_path(npc_id)))
-	return parsed if parsed is Dictionary else {}
+	return JsonTool.read_json_file(_path(npc_id))
 
 
 static func _write(npc_id: String, data: Dictionary) -> void:
 	DirAccess.make_dir_recursive_absolute(DIR)
-	var file := FileAccess.open(_path(npc_id), FileAccess.WRITE)
-	if file != null:
-		file.store_string(JSON.stringify(data, "  "))
-		file.close()
+	JsonTool.write_json_file(_path(npc_id), data)
 
 
 ## 读 persona 区（无快照或无人设键返回 {}——调用方回落作者卡面）。

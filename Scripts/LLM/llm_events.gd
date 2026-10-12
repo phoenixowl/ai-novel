@@ -7,12 +7,12 @@ extends RefCounted
 
 # —— 命令（UI → 服务） ——
 
-signal cmd_set_config(api_key: String, model: String)     # 保存并应用 Key/模型
+signal cmd_set_config(api_key: String, model: String, max_tokens: int)  # 保存并应用 Key/模型/输出上限
 signal cmd_test_connection(api_key: String, model: String)  # 临时值连通性测试（可为编辑中未保存的值）
 signal cmd_get_config()                                   # 请求重发配置快照
 
 # —— 事件（服务 → UI） ——
 
-signal config(api_key: String, model: String, mode: String)  # 配置快照（mode 为客户端显示名）
+signal config(api_key: String, model: String, mode: String, max_tokens: int)  # 配置快照（mode 为客户端显示名）
 signal mode_changed(name: String)                            # 客户端切换（在线/离线、模型变更）
 signal test_result(ok: bool, message: String)                # 连通性测试结果

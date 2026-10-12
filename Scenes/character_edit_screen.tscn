@@ -25,11 +25,11 @@ theme_override_constants/margin_bottom = 10
 
 [node name="RootBox" type="VBoxContainer" parent="RootMargin" unique_id=1966098892]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 12
 
 [node name="HeaderBox" type="HBoxContainer" parent="RootMargin/RootBox" unique_id=1950758007]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 12
 
 [node name="BackBtn" type="Button" parent="RootMargin/RootBox/HeaderBox" unique_id=1561573788]
 unique_name_in_owner = true
@@ -39,7 +39,7 @@ text = "← 返回"
 [node name="TitleLabel" type="Label" parent="RootMargin/RootBox/HeaderBox" unique_id=51369354]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 20
+theme_override_font_sizes/font_size = 24
 text = "编辑 · —"
 
 [node name="StatusLabel" type="Label" parent="RootMargin/RootBox/HeaderBox" unique_id=1285533418]
@@ -47,6 +47,7 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 14
 
 [node name="HSeparator" type="HSeparator" parent="RootMargin/RootBox" unique_id=971770569]
 layout_mode = 2
@@ -59,16 +60,16 @@ horizontal_scroll_mode = 0
 [node name="FormBox" type="VBoxContainer" parent="RootMargin/RootBox/Scroll" unique_id=1604512341]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 12
+theme_override_constants/separation = 18
 
 [node name="PersonaBox" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox" unique_id=454604046]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_constants/separation = 10
 
 [node name="PersonaCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=1383888530]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 16
 text = "人设（保存后写入运行时快照）"
 
 [node name="NameRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=1076917652]
@@ -105,7 +106,7 @@ text = "人设"
 
 [node name="ProfileEdit" type="TextEdit" parent="RootMargin/RootBox/Scroll/FormBox/PersonaBox" unique_id=1657378569]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 96)
+custom_minimum_size = Vector2(0, 150)
 layout_mode = 2
 placeholder_text = "性格、说话方式、常态等人物设定"
 wrap_mode = 1
@@ -113,7 +114,7 @@ wrap_mode = 1
 [node name="NpcOnlyBox" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox" unique_id=1608818167]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 12
 
 [node name="AffinityRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=139853657]
 layout_mode = 2
@@ -122,7 +123,7 @@ theme_override_constants/separation = 10
 [node name="AffinityCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/AffinityRow" unique_id=829156980]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 16
 text = "好感度"
 
 [node name="AffinitySlider" type="HSlider" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/AffinityRow" unique_id=1860456670]
@@ -145,17 +146,17 @@ layout_mode = 2
 [node name="KnowledgeCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1296595060]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 16
 text = "知识日志（保存时按此列表整表生效，未列出的条目将删除）"
 
 [node name="KnowledgeRows" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1614933228]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 8
 
 [node name="KnowledgeAddRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1907530847]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_constants/separation = 8
 
 [node name="NewKnowledgeEdit" type="LineEdit" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/KnowledgeAddRow" unique_id=1300469136]
 unique_name_in_owner = true
@@ -185,17 +186,17 @@ layout_mode = 2
 [node name="MemoryCaption" type="Label" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=1803951561]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.878431, 0.701961, 0.415686, 1)
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 16
 text = "记忆（对话经历的第一人称归纳，注入材料包记忆区）"
 
 [node name="MemoryRows" type="VBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=169790093]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 8
 
 [node name="MemoryAddRow" type="HBoxContainer" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox" unique_id=490227212]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_constants/separation = 8
 
 [node name="NewMemoryEdit" type="LineEdit" parent="RootMargin/RootBox/Scroll/FormBox/NpcOnlyBox/MemoryAddRow" unique_id=1418255779]
 unique_name_in_owner = true
@@ -213,7 +214,7 @@ layout_mode = 2
 
 [node name="BottomBox" type="HBoxContainer" parent="RootMargin/RootBox" unique_id=1815143149]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 12
 
 [node name="SaveBtn" type="Button" parent="RootMargin/RootBox/BottomBox" unique_id=879421155]
 unique_name_in_owner = true

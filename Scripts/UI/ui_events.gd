@@ -5,8 +5,8 @@ extends RefCounted
 ## 根容器（main_ui.gd）据此切换屏幕可见性。
 
 
-## 导航请求。screen：目标屏幕标识——"menu"（开始菜单）/ "characters"（人物总览）/
-## "character_edit"（人物编辑）/ "dialogue"（对话）/ "settings"（设置）
+## 导航请求。screen：目标屏幕标识——"menu"（开始菜单）/ "narration"（世界·统一入口）/
+## "characters"（人物总览）/ "character_edit"（人物编辑）/ "settings"（设置）
 signal navigate_requested(screen: String)
 
 

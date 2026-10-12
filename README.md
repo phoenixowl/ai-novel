@@ -9,16 +9,22 @@ UI 层与逻辑层严格分离，底层能力（JSON 工具、LLM 服务、事�
 
 用 Godot 4.x 打开项目运行即可（主场景 `Scenes/main.tscn`）。
 
-启动后进入**开始菜单**，五个屏幕切换：
+启动后进入**开始菜单**，四块屏幕切换（**统一入口**：行动与对话合并为世界屏一个输入框）：
 
-- **人物对话**：NPC/场景选择、对话记录、输入框；
+- **探索世界**（统一入口）：做点什么，或对谁说句话（“我从书架上抽一本书”“掌柜的，
+  最近有什么生面孔？”）——**DM**（裁判层）裁决每条输入：行动由它叙述后果（行动域）；
+  话语自动转交在场 NPC 当面回应（人物域）；行动+话语混合时先叙述后果再送话（边聊边做）；
+  对话中点名别人自动结算当前对话再转向新对象；注入/元输入直接拒绝。
+  「结算探索」由独立的事实整理者 agent 通读整段记录（叙述与对话混排）确立世界事实；
+  调试侧栏“世界事实”页可按类别浏览并增删改/保存/一键重置事实库；
+  NPC 的对话材料包注入“此刻之前发生了什么”（世界共享上下文）。
   顶栏「调试侧栏」按钮展开右侧四页——① 设定资料 ② 材料包 ③ 完整提示词 ④ 模型回应。
 - **人物**：全部人物以卡片墙呈现（姓名/人设预览/好感度/知识/记忆计数），
   点击进入编辑页——可修改人设、好感度、知识日志、记忆（保存即写入运行时快照并刷新）；
   编辑页可直接发起与该人物的对话，或「写回作者卡面」「恢复卡面」；
   总览页「还原设定」一键回到作者卡面。玩家人设也在这一页编辑。
 - **设置**：DeepSeek API（Key/模型/测试连接，保存到本机 `user://config.cfg`）与
-  **输入审查开关**（立即生效并持久化到 [game] 节；关闭后提交直通对话，不再发起审查请求）。
+  DM 风格四旋钮（采纳度/裁决倾向/描写密度/正典门槛，即选即存）。
 
 - **未配置 API Key 时自动使用离线示例模式**：MockClient 输出与真实模型同格式的预制示例。
   模型可选 `deepseek-flash`（默认）或 `deepseek-v4-pro`（旗舰）；官方已停用
@@ -29,6 +35,8 @@ UI 层与逻辑层严格分离，底层能力（JSON 工具、LLM 服务、事�
 ```
 settings/                     【作者数据】设定资料固定目录（作者手动编写放置，运行期只读）
   worldview.txt                 世界观（纯文本）
+  canon.json                    作者正典：世界客观事实底座（content/weight[/scope]；
+                                启动时播种进事实库，精确文本去重幂等，删除后重启回来）
   factions.json                 组织（id/名称/介绍/成员列表：名称+职位）
   characters/*.json             人物卡（id/姓名/身份/人设/初始好感度 +
                                 knowledge 内联初始知识 [{content, source, trust}] + factions 组织 id 列表）
@@ -48,22 +56,51 @@ Scripts/                        （按域分包；命名规则见 docs/architect
     deepseek_client.gd          DeepSeek 实现（chat/completions，OpenAI 兼容协议）
     mock_client.gd              离线示例实现（未配置 Key 时自动启用，按 purpose 挑样本）
     llm_config.gd / llm_events.gd
-  Lore/                       「设定」域（人物卡、快照、知识、好感度）
-    character_controller.gd     CharacterController（autoload "Characters"）：人物运行时快照的
-                                一切修改（总览/详情/保存/恢复卡面/写回/还原）+ 知识日志构建
+  Models/                     「数据模型」层（纯数据 + JSON 序列化，不含业务规则）
+    entity.gd                    Entity 基类：注册表公共字段 + EntityType/Source/Status 枚举
+    person.gd                    Person：人物（作者卡字段 + knowledge 信念列表 + memories）
+    location.gd                  Location：地点（场景卡素材 + brief 冻结描述 + 在场 npcs）
+    faction.gd                   Faction：组织（description + 成员表）
+    knowledge_entry.gd           KnowledgeEntry：信念条目（card/subjective/ref 三形态，
+                                 信任算术 apply_corroboration/apply_contradiction 富模型）
+    canon_fact.gd                CanonFact：世界事实条目（source/weight/status/scope 枚举）
+    material_pack.gd / narration_pack.gd   对话/旁白回合的"冻结现场"数据容器
+  Lore/                       「设定」域（人物域逻辑：快照、好感度、命令入口）
+    character_controller.gd     CharacterController：人物域命令入口（总览/详情/保存/恢复卡面/
+                                写回/还原）+ 启动维护（relink 旧知识对齐正典）+ 快照落盘
     character_events.gd         CharacterEvents：人物域信号契约（lore_changed 触发对话域重载）
-    lore_repository.gd          LoreRepository：聚合 res://settings/ 全部设定（含快照人设接管）
+    lore_repository.gd          LoreRepository：聚合 res://settings/ 全部设定 → Person/Location/
+                                Faction 模型（含 gen 人物合并、快照人设与 journal 接管）
     snapshot_store.gd           SnapshotStore：user://characters/<id>.json 快照读写
     affinity_store.gd           AffinityStore：好感度档位/增减/存取
-    knowledge_journal.gd        KnowledgeJournal：知识日志——信任算术/习得/复活/记忆/快照持久化
-    character_card.gd / player_card.gd / faction.gd / scene_card.gd
-  Dialogue/                   「对话」域
-    dialogue_controller.gd      DialogueController（autoload "Dialogue"）：状态机 + 第 0 步审查 +
-                                三个流程 + 学习结算 + 回滚 + 事件流水；经 EventBus 与 UI 中转
-    dialogue_events.gd          DialogueEvents：对话域信号契约
-    input_reviewer.gd           第 0 步：LLM 输入审查提示词与结论读取（失败开放）
+  Narration/                  「DM/行动域」（统一入口的裁判层：路由 + 行动后果叙述 + 世界正典、
+                                位置图与实体注册表；设计见 docs/system_design.md）
+    narration_controller.gd     NarrationController（autoload "Narration"）= DM：统一入口裁决
+                                （action/speech/mixed/reject 四路由）+ 行动后果叙述 + 说话调度
+                                （自动开始/切换对话）+ 移动/进场描述冻结 + 世界流水合并（叙述与
+                                对话回声混排）。回合不产出事实——「结算探索」由整理者 agent
+                                （PURPOSE_FACT_EXTRACT）通读混排记录提取，作用域由引擎分配。
+                                discoveries（动态生成人物/地点）暂时弃用（保留代码与注释）
+    narration_events.gd         NarrationEvents：旁白域信号契约（移动/位置快照/结算/事实库编辑）
+    canon_store.gd              CanonStore 2.0：世界事实正典（来源/权重/supersede/作用域标签/
+                                按作用域配额检索——对话域只读，硬线②；增删改即自动落盘）
+    entity_registry.gd          EntityRegistry：实体注册表（person/location/faction + 别名解析；
+                                作者导入为锚 + gen_ 动态生成 + 玩家实体）
+    location_store.gd           LocationStore：位置图（节点/边/当前位置/在场 NPC；links 邻接，
+                                未声明默认连通首个场景；移动零模型参与）
+    narration_pack.gd / narration_pack_builder.gd   旁白材料包与组装（§6.2 配方：
+                                地点作用域/全局提要/提及实体/近期流水/命名闭集）
+    narration_prompt_builder.gd DM 两层提示词（路由规则/在场闭集/行动裁决；旋钮缓存）+
+                                进场描述与事实提取提示词
+    narration_parser.gd         DM 裁决契约与事实提取契约校验（路由枚举/npc 在场闭集/outcome/
+                                闭集 ref/正典门槛；validate_turn 已弃用保留）
+  Dialogue/                   「人物域」引擎（受 DM 调度；对话屏已并入世界屏）
+    dialogue_controller.gd      DialogueController（autoload "Dialogue"）：状态机 + 三个流程 +
+                                学习结算 + 事件流水；材料包含世界上下文（"此刻之前发生了什么"）；
+                                输入审查（第 0 步）已随统一入口退役
+    dialogue_events.gd          DialogueEvents：人物域信号契约（dialogue_started 含 npc_id）
+    input_reviewer.gd           （已弃用）输入审查提示词——保留供参考，不再被调用
     material_pack_builder.gd    【流程二】冻结现场，组装材料包
-    material_pack.gd            MaterialPack：材料包数据模型与调试展示
     prompt_builder.gd           提示词两层拼装：静态规则层（缓存）+ 本轮材料层
     response_parser.gd          【流程三】回应四要素校验 + 自动修复记录
     memory_summarizer.gd        结算时：从对话事件流提取记忆与知识的提示词
@@ -93,21 +130,26 @@ tests/                         smoke_test.gd 冒烟测试 / engine_loop_test.gd 
 | 枚举 | relation（佐证/矛盾）、行动类型 | 枚举校验 |
 
 习得的 `summary`（知识表述）由模型概括，但证据 quote 已锚定真实发言——表述漂移有界、
-有日志、可回滚。**信任算术全部确定性**（引擎定事实）：
+有日志。**信任算术全部确定性**（引擎定事实）：
 
 - 习得默认「怀疑」；独立来源（不同 speaker）佐证 +1 档（上限 绝对可信）
 - 矛盾 -1 档（下限 怀疑）；同来源佐证无效
 - 「已失效」条目被佐证 → 复活为「怀疑」；玩家言论永不直接产生 绝对可信/已失效
 
-材料包**全量注入**知识日志（NPC 的知识本就全量可及，超过 80 条才压缩佐证链）；
+材料包**全量注入**知识日志（NPC 的知识本就全量可及）；
 识谎免费：玩家的话与日志矛盾时两条记录同在模型眼前，自然质疑。
 
 ## 架构：EventBus 中转
 
-> 详细的代码结构与调用链分析见 [docs/architecture.md](docs/architecture.md)。
+> **先读 [docs/code_reading_guide.md](docs/code_reading_guide.md)**——当前代码的精简阅读地图
+> （五域模型 / 一条输入的完整旅程 / 文件地图 / 硬规则）。
+> 其余 docs 文档写于 2026-10 统一入口改造前，内容已过时，仅作历史参考：
+> 阶段二旁白系统（行动裁决 / 世界事实正典 / 玩家状态）的设计见 [docs/narration_design.md](docs/narration_design.md)，
+> 其代码结构与调用链分析见 [docs/narration_architecture.md](docs/narration_architecture.md)。
+> 世界模型与探索系统（位置图 / 事实库 2.0 / 信念层）的设计见 [docs/world_model_design.md](docs/world_model_design.md)。
 
 UI 层不创建、不持有任何逻辑层实例。各域控制器以 autoload 注册
-（`Events` 总线 / `LLM` 模型域 / `Characters` 人物域 / `Dialogue` 对话域），彼此通过主题通信：
+（`Events` 总线 / `LLM` 模型域 / `Characters` 人物域 / `Narration` 旁白域 / `Dialogue` 对话域），彼此通过主题通信：
 
 - `cmd/…`（UI → 控制器）：如 `DialogueEvents.TOPIC_CMD_SUBMIT`（{text}）、
   `TOPIC_CMD_START`、`LLMController.TOPIC_CMD_SET_CONFIG`、`CharacterEvents.cmd_save_character`。
@@ -130,14 +172,14 @@ UI 层不创建、不持有任何逻辑层实例。各域控制器以 autoload �
 - **JsonTool**：模型输出的围栏剥离、括号配平提取、中英文键名读取的唯一实现处。
 - **AuditLog**：jsonl 事件日志；阶段二世界事件流水（设计 5.6 接入点三）以此为地基。
 
-## 一轮对话在界面上的流转
+## 一条输入在世界屏上的流转（统一入口）
 
-1. 选 NPC 与场景 → 『开始新对话』（引擎加载人物卡/场景卡/知识清单/跨对话摘要）。
-2. 输入一句话回车后，先经**第 0 步：LLM 输入审查**（可在设置中关闭）——括号/星号/空格
-   包裹的动作描写、诱导性提问与注入指令会被拒绝：不记录、不计轮次、NPC 听不到，
-   原输入退回输入框供修改后重发（审查失败时放行，不阻塞游戏）。离线示例模式由内置近似规则应答。
-3. **① 设定资料**页常驻展示全部设定；**② 材料包**页实时展示本轮冻结的材料包
-   （场景素材、玩家原话、限量检索的知识、记忆、自身状态、行动清单）。
+1. 世界屏一个输入框：做点什么，或对谁说句话——回车即提交给 **DM**（PURPOSE_DM 一次调用）。
+2. DM 判路由：**action** → 叙述后果落世界流水；**speech** → 自动与在场目标开始/继续对话；
+   **mixed** → 先叙述行动后果再把话送 NPC（边聊边做）；**reject** → 注入退回输入框。
+   对话中点名别人 → 自动结算当前对话（学习与记忆落档）再转向新对象。
+3. NPC 的对话材料包含**世界上下文**（"此刻之前发生了什么"——DM 世界流的叙述域近期事件），
+   所以他知道你刚才上过茶、翻过书；**①-④ 调试页**双域共用，展示最新一次的材料包/提示词/回应。
 4. **③ 提示词**页展示发给模型的两层提示词（System 静态规则层 / User 本轮材料层，可复制）。
 5. **④ 模型回应**页展示模型原始输出与解析结果（发言、claim_type、行动提案、
    内心想法、自动修复提示）。左侧对话区同步渲染发言；内心想法仅在此调试页可见，
