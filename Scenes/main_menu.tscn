@@ -79,6 +79,13 @@ layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
 text = "设置"
 
+[node name="MenuAuthortoolBtn" type="Button" parent="MenuCenter/MenuPanel/MenuBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 44)
+text = "设定编辑（AuthorTool）"
+
 [connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuNarrationBtn" to="." method="_on_menu_narration_pressed"]
 [connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuCharactersBtn" to="." method="_on_menu_characters_pressed"]
 [connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuSettingsBtn" to="." method="_on_menu_settings_pressed"]
+[connection signal="pressed" from="MenuCenter/MenuPanel/MenuBox/MenuAuthortoolBtn" to="." method="_on_menu_authortool_pressed"]

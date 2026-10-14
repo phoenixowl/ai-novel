@@ -186,6 +186,16 @@ Scripts/
 │     memory_summarizer.gd      结算时提取记忆/知识的提示词
 │     dialogue_events.gd        契约
 │     input_reviewer.gd         （已弃用，无人调用）
+├─ Authortool/                   作者工具（架构豁免：作者侧工具，无 autoload/集线器，
+│                                草稿+导出在 RefCounted 模型层，页面直接操作草稿）
+│     authortool_draft.gd        草稿模型：res://settings + 运行时正典 + 风格旋钮 → 内存编辑对象
+│     authortool_exporter.gd     一键导出：user://authortool_export/<时间戳>/ 完整作者数据包
+│     authortool_screen.gd       外壳屏：六子页导航 + 重新载入/一键导出
+│     authortool_list_page.gd    列表型子页基座（左列表增删 + 右表单，选中即编辑）
+│     authortool_world_page.gd / authortool_style_page.gd     世界观主线 / DM 风格四旋钮
+│     authortool_factions_page.gd / authortool_characters_page.gd
+│     authortool_scenes_page.gd / authortool_facts_page.gd    组织 / 人物 / 场景 / 事实库
+│     authortool_widgets.gd      共享控件构建器（暗色样式，各页复用）
 └─ UI/                          只发 cmd、只收 evt
       main_ui.gd                五屏切换
       narration_screen.gd     ★ 世界屏：门控合成、气泡渲染、调试侧栏四页

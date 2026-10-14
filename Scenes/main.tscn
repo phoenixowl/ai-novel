@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://bqet7iq7y4dm0"]
+[gd_scene load_steps=9 format=3 uid="uid://bqet7iq7y4dm0"]
 
 [ext_resource type="Script" uid="uid://dsjot6hhhu2pw" path="res://Scripts/UI/main_ui.gd" id="1_mainui"]
 [ext_resource type="PackedScene" path="res://Scenes/main_menu.tscn" id="2_menu"]
@@ -6,6 +6,7 @@
 [ext_resource type="PackedScene" path="res://Scenes/characters_screen.tscn" id="5_characters"]
 [ext_resource type="PackedScene" path="res://Scenes/character_edit_screen.tscn" id="6_edit"]
 [ext_resource type="PackedScene" path="res://Scenes/narration_screen.tscn" id="7_narration"]
+[ext_resource type="PackedScene" path="res://Scenes/authortool_screen.tscn" id="8_authortool"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -32,6 +33,10 @@ unique_name_in_owner = true
 visible = false
 
 [node name="SettingsScreen" parent="." instance=ExtResource("3_settings")]
+unique_name_in_owner = true
+visible = false
+
+[node name="AuthortoolScreen" parent="." instance=ExtResource("8_authortool")]
 unique_name_in_owner = true
 visible = false
 

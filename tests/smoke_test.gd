@@ -435,6 +435,43 @@ func _run() -> void:
 			voided_kind = KnowledgeEntry.kind_to_key(e.kind)
 	failures = TestUtil.check(ref_count >= 5, "与正典一致的卡面知识转为信念引用（%d 条）" % ref_count, failures)
 	failures = TestUtil.check(voided_kind == "card", "已失效传闻保留主观形态", failures)
+
+	# —— AuthorTool：草稿装载与导出往返（独立目录，不触碰 res://settings 与 user:// 其它内容） ——
+	var draft := AuthortoolDraft.new()
+	draft.load_from_project()
+	failures = TestUtil.check(not draft.worldview.is_empty(), "AuthorTool：世界观已装载", failures)
+	failures = TestUtil.check(draft.characters.size() == 15, "AuthorTool：15 张人物卡", failures)
+	failures = TestUtil.check(draft.factions.size() == 6, "AuthorTool：6 个组织", failures)
+	failures = TestUtil.check(draft.scenes.size() == 2, "AuthorTool：2 张场景卡", failures)
+	failures = TestUtil.check(draft.facts.size() == 27 and draft.active_fact_count() == 27,
+		"AuthorTool：运行时正典全量入草稿（27 条）", failures)
+	failures = TestUtil.check(draft.style.has("adoption") and draft.style.has("threshold"),
+		"AuthorTool：风格四旋钮快照", failures)
+	draft.worldview += "\nAuthorTool 导出测试标记"
+	var test_root := "user://authortool_export_test"
+	var outcome: Dictionary = AuthortoolExporter.export_draft(draft, test_root)
+	failures = TestUtil.check(bool(outcome.get("ok", false)), "AuthorTool：导出成功", failures)
+	var out_dir := str(outcome.get("path", ""))
+	failures = TestUtil.check(FileAccess.file_exists(out_dir + "/worldview.txt")
+		and FileAccess.file_exists(out_dir + "/factions.json")
+		and FileAccess.file_exists(out_dir + "/canon.json")
+		and FileAccess.file_exists(out_dir + "/style.json")
+		and FileAccess.file_exists(out_dir + "/memory/shen_moyan.json")
+		and FileAccess.file_exists(out_dir + "/characters/shen_moyan.json"),
+		"AuthorTool：导出文件集完整（含记忆与人物卡）", failures)
+	failures = TestUtil.check((FileAccess.get_file_as_string(out_dir + "/worldview.txt") as String)
+		.contains("AuthorTool 导出测试标记"), "AuthorTool：草稿修改随导出生效", failures)
+	var exported_canon := JsonTool.read_json_file(out_dir + "/canon.json")
+	failures = TestUtil.check((exported_canon.get("facts", []) as Array).size() == draft.active_fact_count(),
+		"AuthorTool：事实导出仅含 active（%d 条）" % draft.active_fact_count(), failures)
+	var exported_moyan := JsonTool.read_json_file(out_dir + "/characters/shen_moyan.json")
+	failures = TestUtil.check(str(exported_moyan.get("id", "")) == "shen_moyan"
+		and (exported_moyan.get("knowledge", []) as Array).size() == 13,
+		"AuthorTool：人物卡往返保真（知识 13 条）", failures)
+	_remove_dir_tree(ProjectSettings.globalize_path(test_root))
+	failures = TestUtil.check(not DirAccess.dir_exists_absolute(test_root),
+		"AuthorTool：测试导出目录已清理", failures)
+
 	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/shen_moyan.json")
 	DirAccess.remove_absolute(OS.get_user_data_dir() + "/world/canon.json")
 	CanonStore.reset_for_test()
@@ -454,3 +491,26 @@ func _run() -> void:
 ## 按输入原文组装最小 DM 材料包（离线路由用例共用——材料包是输入的唯一路径）。
 func _dm_pack(text: String) -> NarrationPack:
 	return NarrationPackBuilder.build(text, 1, "世界观正文", "", "fangshi", "作坊市街", [])
+
+
+## 递归删除目录树（AuthorTool 测试导出目录清理；容忍上轮残留）。
+func _remove_dir_tree(abs_dir: String) -> void:
+	var dir := DirAccess.open(abs_dir)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var names: Array[String] = []
+	var file_name := dir.get_next()
+	while not file_name.is_empty():
+		names.append(file_name)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	for name in names:
+		if name == "." or name == "..":
+			continue
+		var path := abs_dir + "/" + name
+		if DirAccess.dir_exists_absolute(path):
+			_remove_dir_tree(path)
+		else:
+			DirAccess.remove_absolute(path)
+	DirAccess.remove_absolute(abs_dir)

@@ -30,3 +30,8 @@ func _on_menu_characters_pressed() -> void:
 ## 「设置」：请求导航到设置屏。
 func _on_menu_settings_pressed() -> void:
 	_nav.navigate_requested.emit("settings")
+
+
+## 「设定编辑（AuthorTool）」：请求导航到设定编辑屏（多子页编辑 + 一键导出作者数据包）。
+func _on_menu_authortool_pressed() -> void:
+	_nav.navigate_requested.emit("authortool")

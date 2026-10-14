@@ -6,7 +6,8 @@ extends RefCounted
 
 
 ## 导航请求。screen：目标屏幕标识——"menu"（开始菜单）/ "narration"（世界·统一入口）/
-## "characters"（人物总览）/ "character_edit"（人物编辑）/ "settings"（设置）
+## "characters"（人物总览）/ "character_edit"（人物编辑）/ "settings"（设置）/
+## "authortool"（设定编辑 AuthorTool——多子页编辑 + 一键导出作者数据包）
 signal navigate_requested(screen: String)
 
 
