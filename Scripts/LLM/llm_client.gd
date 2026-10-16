@@ -12,8 +12,6 @@ extends Node
 
 ## 请求用途常量（未来功能在此追加：PURPOSE_ITEM_FORGE …）
 const PURPOSE_DIALOGUE := "dialogue"          ## NPC 对话生成
-const PURPOSE_INPUT_REVIEW := "input_review"  ## （已弃用 2026-10）玩家输入审查——统一入口后由 DM 路由取代
-const PURPOSE_NARRATION := "narration"        ## （已弃用 2026-10）旁白回合——DM 裁决取代回合生成；保留常量供旧样本
 const PURPOSE_MEMORY := "memory"              ## 对话结算后的记忆与知识提取
 const PURPOSE_ENTRY_DESCRIBE := "entry_describe"  ## 首次进场描述（一次性生成后冻结）
 const PURPOSE_FACT_EXTRACT := "fact_extract"  ## 探索结算后的世界事实提取（独立整理者）

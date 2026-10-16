@@ -9,8 +9,6 @@ extends SceneTree
 
 var _ran := false
 
-const SnapshotStore := preload("res://Scripts/Lore/snapshot_store.gd")
-
 
 func _init() -> void:
 	_run.call_deferred()
@@ -95,7 +93,7 @@ func _run() -> void:
 	person.retain_seqs({seq_learn: true})
 	failures = TestUtil.check(person.knowledge.size() == 1 and person.has_seq(seq_learn), "retain_seqs 删除未列出的条目", failures)
 	person.add_card_entry("重建占位", "常识", "比较相信")
-	CharacterController.save_journal(person, "_smoke_test_npc")
+	CharacterController.shared().save_journal(person, "_smoke_test_npc")
 	var restored := Person.new()
 	var snapshot_data := SnapshotStore.read_journal("_smoke_test_npc")
 	failures = TestUtil.check(not snapshot_data.is_empty(), "人物快照存在并可整体载入", failures)
@@ -114,7 +112,7 @@ func _run() -> void:
 		{"event": "player_utterance", "text": "听说情绪税又涨了？"},
 		{"event": "npc_utterance", "npc_name": moyan.canonical_name, "text": "听茶客们念叨过。", "claim_type": "猜测"},
 	]
-	var pack := MaterialPackBuilder.build(
+	var pack := DialoguePackBuilder.build(
 		moyan, scene, "黑潮带的格斗场死了个拳手？", history,
 		repo.get_memory(moyan.entity_id), moyan.active_knowledge(), 3, 12,
 	)
@@ -171,7 +169,7 @@ func _run() -> void:
 	failures = TestUtil.check(bad_action.get("ok", false) and str((bad_action["action"] as Dictionary).get("type")) == "answer", "非法行动类型降级为答话", failures)
 
 
-	# —— 旁白域：CanonStore（纯内存语义；持久化往返在 narration_loop_test 覆盖） ——
+	# —— 旁白域：CanonStore（纯内存语义；持久化往返在 dm_loop_test 覆盖） ——
 	CanonStore.reset_for_test()
 	var fact_id := CanonStore.establish("书房书架藏有一本靛蓝封皮的薄册", "narrator", "major")
 	failures = TestUtil.check(fact_id == 1, "事实确立分配编号", failures)
@@ -232,39 +230,52 @@ func _run() -> void:
 		"改写引用条目降级为主观（fact_id 清零）", failures)
 	failures = TestUtil.check(not demoted.is_stale(), "降级后不再误标过时", failures)
 
-	# —— 旁白域：NarrationParser（DM 裁决契约 + 事实提取契约） ——
+	# —— 旁白域：DMParser（DM 裁决契约 + 事实提取契约） ——
 	var present_set := {"ma_kui": true, "bai_zhiruo": true}
-	var dm1: Dictionary = NarrationParser.validate_dm({
+	var dm1: Dictionary = DMParser.validate_dm({
 		"route": "mixed", "npc": "ma_kui",
 		"action": "我翻账本", "narration": "你翻开了账本。", "outcome": "success",
 		"speech": "顺便问一句昨晚谁来过", "reason": "",
 	}, present_set, "")
 	failures = TestUtil.check(dm1.get("route", "") == "mixed" and dm1.get("npc", "") == "ma_kui",
 		"DM 裁决：mixed 路由与在场目标通过", failures)
-	var dm_clamp: Dictionary = NarrationParser.validate_dm({
+	var dm_clamp: Dictionary = DMParser.validate_dm({
 		"route": "speech", "npc": "shen_moyan", "speech": "你好",
 	}, present_set, "bai_zhiruo")
 	failures = TestUtil.check(dm_clamp.get("npc", "") == "bai_zhiruo",
 		"DM 裁决：不在场目标钳制到当前对象", failures)
-	var dm_fallback: Dictionary = NarrationParser.validate_dm({
+	var dm_fallback: Dictionary = DMParser.validate_dm({
 		"route": "speech", "npc": "", "speech": "你好",
 	}, present_set, "")
 	failures = TestUtil.check(dm_fallback.get("npc", "") == "ma_kui",
 		"DM 裁决：未给目标按首位在场人物处理", failures)
-	var dm_bad: Dictionary = NarrationParser.validate_dm({
+	var dm_bad: Dictionary = DMParser.validate_dm({
 		"route": "大成功", "action": "我走", "narration": "", "outcome": "爆",
 	}, present_set, "")
 	failures = TestUtil.check(dm_bad.get("route", "") == "action" and dm_bad.get("outcome", "") == "pending"
 		and not str(dm_bad.get("narration", "")).is_empty(),
 		"DM 裁决：非法路由/outcome 回落 + 缺叙述注入保底", failures)
-	var dm_no_speech: Dictionary = NarrationParser.validate_dm({
+	var dm_no_speech: Dictionary = DMParser.validate_dm({
 		"route": "speech", "npc": "ma_kui", "speech": "",
 	}, present_set, "")
 	failures = TestUtil.check(dm_no_speech.get("route", "") == "action",
 		"DM 裁决：说话路由缺 speech 降级为行动", failures)
+	var dm_facts: Dictionary = DMParser.validate_dm({
+		"route": "action", "narration": "你把薄册塞进怀里。", "outcome": "success",
+		"facts": [
+			{"content": "来客藏起了一本靛蓝封皮的薄册", "weight": "major"},
+			{"content": "", "weight": "minor"},
+			{"content": "坏权重", "weight": "爆"},
+			"垃圾项",
+		],
+	}, present_set, "")
+	var df: Array = dm_facts.get("facts", [])
+	failures = TestUtil.check(df.size() == 2, "DM 申报事实：空 content/非对象项丢弃，其余保留", failures)
+	failures = TestUtil.check(str((df[1] as Dictionary).get("weight", "")) == "minor",
+		"DM 申报事实：非法权重回落 minor", failures)
 
 	var pack_ids := {1: true, 2: true}
-	var nfacts: Dictionary = NarrationParser.validate_facts({
+	var nfacts: Dictionary = DMParser.validate_facts({
 		"facts": [
 			{"ref": 0, "content": "新事实甲", "weight": "major", "adopted_from_player": true},
 			{"ref": 1, "content": "改写事实一", "weight": "minor"},
@@ -277,16 +288,23 @@ func _run() -> void:
 	failures = TestUtil.check(str((n_facts[0] as Dictionary).get("source", "")) == CanonFact.source_key(true), "adopted_from_player 映射 player 来源", failures)
 	failures = TestUtil.check(int((n_facts[1] as Dictionary).get("ref", 0)) == 1, "闭集内改写保留引用", failures)
 	failures = TestUtil.check(int((n_facts[2] as Dictionary).get("ref", 0)) == 0, "越界引用降级为新事实（ref=0）", failures)
-	var n_strict: Dictionary = NarrationParser.validate_facts({
+	var n_strict: Dictionary = DMParser.validate_facts({
 		"facts": [
 			{"ref": 0, "content": "次要新事实", "weight": "minor"},
 			{"ref": 2, "content": "改写既有", "weight": "minor"},
 		],
 	}, pack_ids, true)
 	failures = TestUtil.check((n_strict.get("facts", []) as Array).size() == 1, "严格门槛：minor 新事实被丢弃、取代保留", failures)
+	var nconfirm: Dictionary = DMParser.validate_facts({
+		"facts": [],
+		"confirmed": [1, 2, "x", 99],
+	}, pack_ids, false)
+	failures = TestUtil.check((nconfirm.get("confirmed", []) as Array).size() == 2
+		and int((nconfirm.get("confirmed", []) as Array)[1]) == 2,
+		"提取契约：confirmed 闭集校验（非数字/越界忽略，保留 [1,2]）", failures)
 
 	# —— 旁白域：DM 提示词与世界材料包 ——
-	var npb := NarrationPromptBuilder.new()
+	var npb := DMPromptBuilder.new()
 	var knobs_loose := {"adoption": "宽松", "verdict": "宽松", "density": "简练", "threshold": "宽松"}
 	var sys_loose := npb.dm_system_prompt(knobs_loose)
 	failures = TestUtil.check(sys_loose.contains("DM") and sys_loose.contains("路由规则"), "DM 静态层含身份与路由规则", failures)
@@ -296,7 +314,7 @@ func _run() -> void:
 	var knobs_strict := {"adoption": "严格", "verdict": "严格", "density": "浓墨", "threshold": "严格"}
 	failures = TestUtil.check(not npb.dm_system_prompt(knobs_strict).contains("优先采纳"), "严格采纳措辞不同", failures)
 	failures = TestUtil.check(npb.dm_system_prompt(knobs_loose) == sys_loose, "DM 静态层按旋钮缓存", failures)
-	var npack := NarrationPackBuilder.build(
+	var npack := DMPackBuilder.build(
 		"我去半盏居找沈掌柜", 7, "世界观正文", "主线基调正文",
 		"teahouse", EntityRegistry.display_name("teahouse"),
 		["[你·行动] 前一拍你试过一件事", "[旁白·partial] 世界只给了半个回应"])
@@ -322,7 +340,7 @@ func _run() -> void:
 	sample_fact.source = CanonFact.FactSource.NARRATOR
 	sample_fact.weight = CanonFact.FactWeight.MAJOR
 	var canon_sample: Array[CanonFact] = [sample_fact]
-	var prompts := NarrationPromptBuilder.extraction_prompt(
+	var prompts := DMPromptBuilder.extraction_prompt(
 		canon_sample, ["[你·行动] 我从书架上抽一本书"])
 	failures = TestUtil.check(str(prompts.get("system", "")).contains("整理者")
 		and str(prompts.get("system", "")).contains("facts"), "提取器系统层含契约", failures)
@@ -370,6 +388,32 @@ func _run() -> void:
 		and CanonStore.entry(del_target).superseded_by == 0,
 		"删除后取代链置 0（无悬空引用）", failures)
 	failures = TestUtil.check(not CanonStore.erase(99999), "删除不存在条目返回失败", failures)
+
+	# —— 临时事实（支柱A：DM 行动申报 → 结算复核；全部用全局作用域，不干扰上方断言） ——
+	var prov_id := CanonStore.establish("来客刚把一本靛蓝封皮的薄册塞进怀里", "narrator", "minor", [], true)
+	failures = TestUtil.check(prov_id > 0
+		and CanonStore.entry(prov_id).status == CanonFact.FactStatus.PROVISIONAL,
+		"临时事实以 PROVISIONAL 入典", failures)
+	failures = TestUtil.check(CanonStore.find_by_content("来客刚把一本靛蓝封皮的薄册塞进怀里") == prov_id,
+		"临时事实可被学习路径消解（find_by_content 命中）", failures)
+	failures = TestUtil.check(CanonStore.global_digest().has(CanonStore.entry(prov_id)),
+		"检索通道含临时事实（全局提要命中）", failures)
+	var sup_prov: Dictionary = CanonStore.supersede(prov_id, "薄册后来被来客放回了书架", "narrator", "minor")
+	failures = TestUtil.check(int(sup_prov.get("old_id", 0)) == prov_id
+		and CanonStore.entry(prov_id).status == CanonFact.FactStatus.SUPERSEDED,
+		"临时事实可被结算取代（复核路径，保留审计链）", failures)
+	var prov2 := CanonStore.establish("来客又在柜台边留下了一枚铜哨", "narrator", "minor", [], true)
+	CanonStore.establish("来客又在柜台边留下了一枚铜哨", "narrator", "minor")  # 确认性重述
+	failures = TestUtil.check(CanonStore.entry(prov2).status == CanonFact.FactStatus.ACTIVE,
+		"确认性重述（provisional=false）逐字命中临时条目即转正", failures)
+	var prov3 := CanonStore.establish("来客临走前要了一盏雾顶", "narrator", "minor", [], true)
+	var prov4 := CanonStore.establish("来客进门前在门口蹭了蹭鞋底的灰", "narrator", "minor", [], true)
+	var verdict: Dictionary = CanonStore.settle_provisional([prov3])
+	failures = TestUtil.check(int(verdict.get("confirmed", 0)) == 1
+		and int(verdict.get("discarded", 0)) == 1
+		and CanonStore.entry(prov3).status == CanonFact.FactStatus.ACTIVE
+		and CanonStore.entry(prov4) == null,
+		"settle_provisional 点名制：点名转正、未点名移除", failures)
 
 	# —— 权重分层预算：major 全量注入，minor 封顶保最近（作用域与全局提要同规则） ——
 	for i in range(50):
@@ -435,6 +479,43 @@ func _run() -> void:
 			voided_kind = KnowledgeEntry.kind_to_key(e.kind)
 	failures = TestUtil.check(ref_count >= 5, "与正典一致的卡面知识转为信念引用（%d 条）" % ref_count, failures)
 	failures = TestUtil.check(voided_kind == "card", "已失效传闻保留主观形态", failures)
+
+	# —— AuthorTool：草稿装载与导出往返（独立目录，不触碰 res://settings 与 user:// 其它内容） ——
+	var draft := AuthortoolDraft.new()
+	draft.load_from_project()
+	failures = TestUtil.check(not draft.worldview.is_empty(), "AuthorTool：世界观已装载", failures)
+	failures = TestUtil.check(draft.characters.size() == 15, "AuthorTool：15 张人物卡", failures)
+	failures = TestUtil.check(draft.factions.size() == 6, "AuthorTool：6 个组织", failures)
+	failures = TestUtil.check(draft.scenes.size() == 2, "AuthorTool：2 张场景卡", failures)
+	failures = TestUtil.check(draft.facts.size() == 27 and draft.active_fact_count() == 27,
+		"AuthorTool：运行时正典全量入草稿（27 条）", failures)
+	failures = TestUtil.check(draft.style.has("adoption") and draft.style.has("threshold"),
+		"AuthorTool：风格四旋钮快照", failures)
+	draft.worldview += "\nAuthorTool 导出测试标记"
+	var test_root := "user://authortool_export_test"
+	var outcome: Dictionary = AuthortoolExporter.export_draft(draft, test_root)
+	failures = TestUtil.check(bool(outcome.get("ok", false)), "AuthorTool：导出成功", failures)
+	var out_dir := str(outcome.get("path", ""))
+	failures = TestUtil.check(FileAccess.file_exists(out_dir + "/worldview.txt")
+		and FileAccess.file_exists(out_dir + "/factions.json")
+		and FileAccess.file_exists(out_dir + "/canon.json")
+		and FileAccess.file_exists(out_dir + "/style.json")
+		and FileAccess.file_exists(out_dir + "/memory/shen_moyan.json")
+		and FileAccess.file_exists(out_dir + "/characters/shen_moyan.json"),
+		"AuthorTool：导出文件集完整（含记忆与人物卡）", failures)
+	failures = TestUtil.check((FileAccess.get_file_as_string(out_dir + "/worldview.txt") as String)
+		.contains("AuthorTool 导出测试标记"), "AuthorTool：草稿修改随导出生效", failures)
+	var exported_canon := JsonTool.read_json_file(out_dir + "/canon.json")
+	failures = TestUtil.check((exported_canon.get("facts", []) as Array).size() == draft.active_fact_count(),
+		"AuthorTool：事实导出仅含 active（%d 条）" % draft.active_fact_count(), failures)
+	var exported_moyan := JsonTool.read_json_file(out_dir + "/characters/shen_moyan.json")
+	failures = TestUtil.check(str(exported_moyan.get("id", "")) == "shen_moyan"
+		and (exported_moyan.get("knowledge", []) as Array).size() == 13,
+		"AuthorTool：人物卡往返保真（知识 13 条）", failures)
+	_remove_dir_tree(ProjectSettings.globalize_path(test_root))
+	failures = TestUtil.check(not DirAccess.dir_exists_absolute(test_root),
+		"AuthorTool：测试导出目录已清理", failures)
+
 	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/shen_moyan.json")
 	DirAccess.remove_absolute(OS.get_user_data_dir() + "/world/canon.json")
 	CanonStore.reset_for_test()
@@ -452,5 +533,28 @@ func _run() -> void:
 
 
 ## 按输入原文组装最小 DM 材料包（离线路由用例共用——材料包是输入的唯一路径）。
-func _dm_pack(text: String) -> NarrationPack:
-	return NarrationPackBuilder.build(text, 1, "世界观正文", "", "fangshi", "作坊市街", [])
+func _dm_pack(text: String) -> DMPack:
+	return DMPackBuilder.build(text, 1, "世界观正文", "", "fangshi", "作坊市街", [])
+
+
+## 递归删除目录树（AuthorTool 测试导出目录清理；容忍上轮残留）。
+func _remove_dir_tree(abs_dir: String) -> void:
+	var dir := DirAccess.open(abs_dir)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var names: Array[String] = []
+	var file_name := dir.get_next()
+	while not file_name.is_empty():
+		names.append(file_name)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	for name in names:
+		if name == "." or name == "..":
+			continue
+		var path := abs_dir + "/" + name
+		if DirAccess.dir_exists_absolute(path):
+			_remove_dir_tree(path)
+		else:
+			DirAccess.remove_absolute(path)
+	DirAccess.remove_absolute(abs_dir)

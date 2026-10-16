@@ -15,7 +15,10 @@ UI 层与逻辑层严格分离，底层能力（JSON 工具、LLM 服务、事�
   最近有什么生面孔？”）——**DM**（裁判层）裁决每条输入：行动由它叙述后果（行动域）；
   话语自动转交在场 NPC 当面回应（人物域）；行动+话语混合时先叙述后果再送话（边聊边做）；
   对话中点名别人自动结算当前对话再转向新对象；注入/元输入直接拒绝。
-  「结算探索」由独立的事实整理者 agent 通读整段记录（叙述与对话混排）确立世界事实；
+  行动回合造成的持久状态变化由 DM 当场申报进正典（临时事实，立即生效可检索；
+  环境氛围等非持久内容由申报标准与引擎闸门拦截）；「结算探索」由独立的事实整理者
+  agent 通读整段记录逐条复核（confirmed 点名的临时事实转正，未点名的移除）
+  并确立其余世界事实；
   调试侧栏“世界事实”页可按类别浏览并增删改/保存/一键重置事实库；
   NPC 的对话材料包注入“此刻之前发生了什么”（世界共享上下文）。
   顶栏「调试侧栏」按钮展开右侧四页——① 设定资料 ② 材料包 ③ 完整提示词 ④ 模型回应。
@@ -149,7 +152,7 @@ tests/                         smoke_test.gd 冒烟测试 / engine_loop_test.gd 
 > 世界模型与探索系统（位置图 / 事实库 2.0 / 信念层）的设计见 [docs/world_model_design.md](docs/world_model_design.md)。
 
 UI 层不创建、不持有任何逻辑层实例。各域控制器以 autoload 注册
-（`Events` 总线 / `LLM` 模型域 / `Characters` 人物域 / `Narration` 旁白域 / `Dialogue` 对话域），彼此通过主题通信：
+（`Events` 总线 / `LLM` 模型域 / `Characters` 人物域 / `DM` 裁判域 / `Dialogue` 对话域），彼此通过主题通信：
 
 - `cmd/…`（UI → 控制器）：如 `DialogueEvents.TOPIC_CMD_SUBMIT`（{text}）、
   `TOPIC_CMD_START`、`LLMController.TOPIC_CMD_SET_CONFIG`、`CharacterEvents.cmd_save_character`。

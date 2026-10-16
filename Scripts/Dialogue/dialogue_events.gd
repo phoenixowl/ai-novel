@@ -18,7 +18,7 @@ signal cmd_reset_memory()                           # 重置当前 NPC 的知识
 # —— 事件（引擎 → UI） ——
 
 signal dialogue_started(npc_id: String, npc_name: String, scene_name: String)
-signal pack_built(pack: MaterialPack)               # 本轮冻结的材料包
+signal pack_built(pack: DialoguePack)               # 本轮冻结的材料包
 signal prompt_built(system: String, user: String)   # 发给模型的两层提示词
 signal llm_request(mode: String)                    # 模型请求开始（mode 为客户端显示名）
 signal response(result: Dictionary)                 # 解析结果（含 fallback/raw/notes 等可变字段）

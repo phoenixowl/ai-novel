@@ -1,4 +1,4 @@
-class_name LlmConfig
+class_name LLMConfig
 extends RefCounted
 ## DeepSeek API 配置存取（LLM 层）。保存在本机 user://config.cfg。
 ## API Key 默认为空——为空时 LLMController 自动改用离线示例客户端。
@@ -24,7 +24,8 @@ var max_tokens := DEFAULT_MAX_TOKENS  # 单次补全的输出上限（finish_rea
 
 
 ## 从本机配置读取 Key/模型/输出上限；文件缺失保持默认，停用模型名回落默认，越界值钳位。
-func load() -> void:
+## （不叫 load()：避免遮蔽 GDScript 全局函数名）
+func load_from_disk() -> void:
 	var config := ConfigFile.new()
 	if config.load(CONFIG_PATH) != OK:
 		return
@@ -38,7 +39,7 @@ func load() -> void:
 
 
 ## 写回本机配置（[deepseek] 节）。先读旧文件再写，保留 GameConfig 的 [game] 节。
-func save() -> void:
+func save_to_disk() -> void:
 	var config := ConfigFile.new()
 	config.load(CONFIG_PATH)  # 无文件时忽略
 	config.set_value(SECTION, "api_key", api_key)

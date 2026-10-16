@@ -19,7 +19,7 @@ func clear_cache() -> void:
 ## 好感度不入静态层（数值经材料包 npc_state 走材料层，缓存键因此与好感度无关）。
 ## npc：回应者；worldview：世界观全文；mainline：主线基调（可为空）。
 func system_prompt(npc: Person, worldview: String, mainline := "") -> String:
-	var cache_key := npc.entity_id + "|" + str(mainline.length())
+	var cache_key := npc.entity_id  # 静态层只随 NPC 变（lore_changed 已兜底清缓存）
 	if _system_cache.has(cache_key):
 		return _system_cache[cache_key]
 	var text := _build_system(npc, worldview, mainline)
@@ -29,7 +29,7 @@ func system_prompt(npc: Person, worldview: String, mainline := "") -> String:
 
 ## 本轮材料层：材料包内容的直接渲染（常识/信念/世界事实/记忆/行动清单/强制回应）。
 ## pack：本轮冻结的材料包。
-func user_prompt(pack: MaterialPack) -> String:
+func user_prompt(pack: DialoguePack) -> String:
 	var p: Array[String] = []
 	p.append("【本轮材料】第 %d 轮（对话上限 %d 轮）—— 组装于 %s，此刻现场已冻结。" % [
 		pack.turn_number, pack.max_turns, pack.assembled_at,
@@ -90,7 +90,7 @@ func user_prompt(pack: MaterialPack) -> String:
 		p.append("  （这是第一轮，还没有记录）")
 	else:
 		for event in pack.dialogue_history:
-			p.append("  " + MaterialPack.history_line(event))
+			p.append("  " + DialoguePack.history_line(event))
 	p.append("")
 	p.append("■ 你的状态")
 	var affinity := int(pack.npc_state.get("affinity", 0))
@@ -104,7 +104,7 @@ func user_prompt(pack: MaterialPack) -> String:
 			action.get("type", ""), action.get("name", ""), action.get("target", ""), action.get("description", ""),
 		])
 	if pack.max_turns - pack.turn_number <= 2:
-		p.append(MaterialPackBuilder.NEAR_LIMIT_HINT)
+		p.append(DialoguePackBuilder.NEAR_LIMIT_HINT)
 	p.append("")
 	p.append("■ 你的交谈对象（每轮末尾重申——你必须时刻意识到对面站着的是谁）")
 	p.append("· 称呼：" + str(pack.player_info.get("name", "来客")))

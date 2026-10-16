@@ -1,4 +1,4 @@
-class_name MaterialPack
+class_name DialoguePack
 extends RefCounted
 ## 材料包（Models 层）：对话某一轮的全部输入，分两半——
 ##   素材包（场景素材、玩家原话、信念层、世界事实、记忆、自身状态）——发言的原料
@@ -21,7 +21,7 @@ var cross_dialogue_summary := ""  # 背景摘要（作者写的跨对话记忆�
 var world_context: Array[String] = []  # 此刻之前发生了什么（叙述域近期事件；统一入口的共享上下文）
 var session_lines: Array[String] = []  # 最近会话记忆
 var dialogue_history: Array = []  # 本段对话已确认轮次的事件（Dictionary 列表）
-var npc_state := {}  # mood / tone / affinity
+var npc_state := {}  # tone / affinity（好感度经提示词与调试页同构渲染）
 
 # ———— 行动清单 ————
 var action_list: Array[Dictionary] = []
@@ -38,7 +38,7 @@ static func history_line(event: Dictionary) -> String:
 			return "[%s·%s] %s" % [event.get("npc_name", "NPC"), event.get("claim_type", ""), event.get("text", "")]
 		"npc_silence":
 			return "[%s·沉默] %s" % [event.get("npc_name", "NPC"), event.get("description", "")]
-	return str(event.get("event", ""))
+	return ""  # 过程事件（dialogue_started/belief_updated/…）不占行数——与 DMPack.history_line 同契约
 
 
 ## 调试面板（UI ②材料包页）的展示文本。
@@ -96,7 +96,9 @@ func to_display_text() -> String:
 			p.append("  " + history_line(event))
 	p.append("")
 	p.append("[b]■ 自身状态[/b]")
-	p.append("· 心情：%s" % str(npc_state.get("mood", "")))
+	var affinity := int(npc_state.get("affinity", 0))
+	p.append("· 你对此人的好感度：%d（%s）。%s" % [
+		affinity, AffinityStore.tier_label(affinity), AffinityStore.tier_text(affinity)])
 	p.append("· 人设基调：%s" % str(npc_state.get("tone", "")))
 	p.append("")
 	p.append("[b]■ 行动清单（三选一）[/b]")

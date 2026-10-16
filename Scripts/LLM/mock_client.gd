@@ -4,7 +4,6 @@ extends LLMClient
 ## 按 purpose 区分请求类型（输入审查 / 对话生成 / 记忆提取），输出与真实模型完全相同的
 ## JSON 回应格式，便于在无网络、无 Key 的环境下走通全部流程与界面。
 ## 部分样本故意裹上 markdown 围栏，用于验证解析器的容错能力。
-## 输入审查由内置近似规则应答（关键词/正则）：真实环境由 LLM 判断。
 
 
 const SAMPLE_DELAY := 0.7  # 模拟网络延迟
@@ -36,14 +35,15 @@ func complete(_system_prompt: String, user_prompt: String, purpose := PURPOSE_DI
 			"narration": "你放慢脚步走进这里。汲取器柱的低鸣贴着地面涌过来，暖黄的灯一盏接一盏在头顶亮起，把来路吞进暮色里。有人从你身边经过，没有回头——这地方见惯了生面孔。",
 		}), "error": ""}
 	if purpose == PURPOSE_FACT_EXTRACT:
+		# 样本只含状态变化（旧样本第二条"书房里积着厚厚的灰"是氛围描写，违背提取
+		# 规则本身，已移除）；confirmed 点名材料层里的全部临时条目，演示点名制复核
 		return {"ok": true, "content": JSON.stringify({
 			"facts": [
-				{"ref": 0, "content": "书房书架第三层藏有一本靛蓝封皮的薄册，扉页有前任主人的名字", "weight": "major", "adopted_from_player": false},
-				{"ref": 0, "content": "书房里积着厚厚的灰，很久没有客人来过", "weight": "minor", "adopted_from_player": false},
+				{"ref": 0, "content": "来客从货架上取走了一份报纸，夹在臂弯里", "weight": "minor", "adopted_from_player": true},
+				{"ref": 0, "content": "书架第三层藏有一本靛蓝封皮的薄册，扉页有前任主人的名字", "weight": "major", "adopted_from_player": false},
 			],
+			"confirmed": _provisional_ids_in(user_prompt),
 		}), "error": ""}
-	if purpose == PURPOSE_INPUT_REVIEW:
-		return {"ok": true, "content": _review_sample(user_prompt), "error": ""}
 	var turn := _turn_from_prompt(user_prompt)
 	var player_text := _player_text_from_prompt(user_prompt)
 	var sample := _pick_sample(player_text, turn)
@@ -98,6 +98,7 @@ func _dm_route_sample(user_prompt: String) -> String:
 	var action_part := ""
 	var narration := ""
 	var outcome := ""
+	var facts: Array = []
 	if route == "action" or route == "mixed":
 		action_part = text
 		if route == "mixed":
@@ -105,6 +106,8 @@ func _dm_route_sample(user_prompt: String) -> String:
 		else:
 			narration = "你依言做了。周围的一切安静地回应你——没有意外，也没有惊喜。"
 		outcome = "success"
+		# 离线近似：行动落地即申报一条持久事实（演示临时事实通道；重复申报由引擎去重）
+		facts.append({"content": "柜台那边刚刚有人翻动过东西", "weight": "minor"})
 	return JSON.stringify({
 		"route": route,
 		"npc": npc,
@@ -113,6 +116,7 @@ func _dm_route_sample(user_prompt: String) -> String:
 		"outcome": outcome,
 		"speech": speech if route == "speech" or route == "mixed" else "",
 		"reason": reason,
+		"facts": facts,
 	}, "  ")
 
 
@@ -186,70 +190,14 @@ static func _first_quoted_in(text: String) -> String:
 	return rest.substr(0, end).strip_edges()
 
 
-# ———— 旁白样本（与真实回应同构：narration/outcome/facts） ————
-
-
-## 按行动内容挑选旁白样本：翻书/取物 → success + 新事实；否则通用探索样本（partial）。
-## user_prompt：旁白材料层提示词。
-func _narration_sample(user_prompt: String) -> String:
-	var action := _first_quoted_after(user_prompt, "■ 玩家刚才的行动声明")
-	if _contains_any(action, ["书", "翻", "抽", "取", "拿", "捡"]):
-		return sample_narration_gain()
-	return sample_narration_generic()
-
-
-## 翻书取物样本（已弃用 2026-10：回合生成由 DM 取代，discoveries 暂时静默；
-## 保留样本供参考，不再含 discoveries 字段）。
-static func sample_narration_gain() -> String:
-	return JSON.stringify({
-		"narration": "你从书架第三层抽出一本薄册，封皮是褪色的靛蓝，边角被摩挲得发亮。翻开扉页，一行小字写着前任主人的名字，墨迹已经很淡了。你把它揣进怀里——这间书房似乎很久没有客人来过。",
-		"outcome": "success",
-	}, "  ")
-
-
-## 通用探索样本：partial——方向可行但缺条件（演示裁决分级的另一档）。
-static func sample_narration_generic() -> String:
-	return JSON.stringify({
-		"narration": "你在这片街区走了一段。汲取器低沉的嗡鸣贴着地面爬行，路灯把你的影子拉得很长。你想打听的事，街坊们要么摇头，要么把话题岔开——这座城市对生面孔的耐心，比想象中更短。眼下你还缺一个能让他们开口的理由。",
-		"outcome": "partial",
-		"facts": [],
-	}, "  ")
-
-
-# ———— 输入审查（已弃用 2026-10：统一入口后审查由 DM 路由取代；保留供旧引用） ————
-
-
-## 输入审查的离线近似应答：关键词/正则判定动作与注入，输出 approve/reject JSON。
-## user_prompt：审查提示词（含玩家原话标记）。
-func _review_sample(user_prompt: String) -> String:
-	var text := _review_input_from_prompt(user_prompt)
-	var reason := ""
-	if _contains_any(text, ["忽略", "系统", "指令", "提示词", "规则", "设定", "假装", "扮演", "输出", "jailbreak", "prompt", "api"]):
-		reason = "诱导或注入：试图让 NPC 执行指令、无视人设或套取系统信息。"
-	elif _looks_like_action(text):
-		reason = "包含动作描写：动作不能通过输入框执行，只输入你角色说出的话。"
-	if reason.is_empty():
-		return JSON.stringify({"verdict": "approve", "reason": "常规发言"}, "  ")
-	return JSON.stringify({"verdict": "reject", "reason": reason}, "  ")
-
-
-## 判定文本是否含动作描写：星号包裹、中英文括号舞台指示、两侧空格包裹的汉字段。
-## text：待判定的玩家输入。
-func _looks_like_action(text: String) -> bool:
-	if text.contains("*"):
-		return true
-	# 括号包裹的动作/舞台指示（中英文括号）
-	var paren := RegEx.create_from_string("[（(][^（）()]{1,16}[）)]")
-	if paren.search(text) != null:
-		return true
-	# 空格包裹的动作：两侧都是空格的连续汉字段（“我 走到柜台 看看”）
-	var spaced := RegEx.create_from_string("\\s[一-龥]{2,10}\\s")
-	return spaced.search(text) != null
-
-
-## 从审查提示词中提取玩家原话（锚定标记后取首个引号段）。
-func _review_input_from_prompt(user_prompt: String) -> String:
-	return _first_quoted_after(user_prompt, "【玩家输入")
+## 从提取器材料层解析临时事实编号（离线演示 confirmed 点名制；真实环境由 LLM 裁决）。
+## 材料层行格式："· [id]（narrator · minor · 临时）内容"。
+static func _provisional_ids_in(user_prompt: String) -> Array:
+	var out: Array = []
+	var regex := RegEx.create_from_string("\\[(\\d+)\\]（[^）]*· 临时）")
+	for found in regex.search_all(user_prompt):
+		out.append(int(found.get_string(1)))
+	return out
 
 
 # ———— 样本挑选 ————
@@ -270,11 +218,11 @@ func _pick_sample(player_text: String, turn: int) -> String:
 	return sample_generic(turn)
 
 
-## text 是否包含 keys 中任一关键词（大小写不敏感）。
+## text 是否包含 keys 中任一关键词（统一转小写比较一次）。
 static func _contains_any(text: String, keys: Array) -> bool:
 	var lower := text.to_lower()
 	for key in keys:
-		if text.contains(key) or lower.contains(str(key)):
+		if lower.contains(str(key).to_lower()):
 			return true
 	return false
 
@@ -302,7 +250,6 @@ static func sample_boxer(turn: int) -> String:
 		"utterance": "那拳手，死前半个月常来我这儿喝茶，手抖得端不住碗，我瞧得真真儿的。再往下的事，你去问黑潮带，别问茶馆。",
 		"claim_type": "确知",
 		"action": {"type": "answer", "description": "放下盖碗，抬眼看你"},
-		"learned": [{"quote": "黑潮带的格斗场死了个拳手", "summary": "来客也知道黑潮带拳手之死", "note": "生面孔竟知道这事"}],
 	}, "  ")
 
 

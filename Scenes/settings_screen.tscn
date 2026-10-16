@@ -117,26 +117,6 @@ size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
 text = " "
 
-[node name="SettingsHSeparator2" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=101527206]
-layout_mode = 2
-
-[node name="ReviewToggle" type="CheckButton" parent="SettingsCenter/SettingsPanel/SettingsBox/ReviewRow" unique_id=1967008306]
-unique_name_in_owner = true
-layout_mode = 2
-button_pressed = true
-text = "输入审查"
-
-[node name="ReviewHint" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox/ReviewRow" unique_id=966878371]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
-theme_override_font_sizes/font_size = 13
-text = "开启后每次发言先经 LLM 审查：括号/星号/空格包裹的动作与诱导注入会被拒绝。关闭则直通对话，响应更快。"
-autowrap_mode = 3
-
-[node name="SettingsHSeparator3" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=499516789]
-layout_mode = 2
-
 [node name="KnobsHSeparator" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox"]
 layout_mode = 2
 

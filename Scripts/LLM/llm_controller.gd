@@ -4,10 +4,10 @@ extends Node
 ## 分层约定：未来任何 AI 功能（AI 旁白、道具生成……）都通过本服务调用模型，
 ## 不自行创建客户端、不自行解析 JSON——一次 complete_json 即得 {ok, data, notes, raw}。
 ##
-## 与 UI 的交互经 EventBus（autoload "Events"）中转：在 LlmEvents 集线器
+## 与 UI 的交互经 EventBus（autoload "Events"）中转：在 LLMEvents 集线器
 ##（Scripts/LLM/llm_events.gd）上连接 cmd_* 命令信号、发射事件信号。
 
-var config := LlmConfig.new()
+var config := LLMConfig.new()
 
 var force_offline := false:
 	set(value):
@@ -18,7 +18,7 @@ var force_offline := false:
 static var _shared: LLMController
 
 var _client: LLMClient
-var _events: LlmEvents  # 事件集线器（_ready 时经总线取得）
+var _events: LLMEvents  # 事件集线器（_ready 时经总线取得）
 
 
 static func shared() -> LLMController:
@@ -35,15 +35,11 @@ static func create_shared() -> LLMController:
 	return _shared
 
 
-## 取全局事件总线；autoload 未就绪时手动创建（兜底）。
-func _bus() -> EventBus:
-	return EventBus.shared() if EventBus.shared() != null else EventBus.create_shared()
-
 
 func _ready() -> void:
 	_shared = self
-	_events = _bus().hub(LlmEvents) as LlmEvents
-	config.load()
+	_events = EventBus.resolve().hub(LLMEvents) as LLMEvents
+	config.load_from_disk()
 	_apply_config()
 	_events.cmd_set_config.connect(_on_cmd_set_config)
 	_events.cmd_test_connection.connect(_on_cmd_test)
@@ -88,8 +84,8 @@ func set_api_config(key: String, model_name: String, max_tokens_cap := -1) -> vo
 	config.api_key = key.strip_edges()
 	config.model = model_name
 	if max_tokens_cap > 0:
-		config.max_tokens = clampi(max_tokens_cap, LlmConfig.MIN_MAX_TOKENS, LlmConfig.MAX_MAX_TOKENS)
-	config.save()
+		config.max_tokens = clampi(max_tokens_cap, LLMConfig.MIN_MAX_TOKENS, LLMConfig.MAX_MAX_TOKENS)
+	config.save_to_disk()
 	_apply_config()
 	_publish_config()
 

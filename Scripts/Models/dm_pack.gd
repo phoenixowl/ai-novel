@@ -1,4 +1,4 @@
-class_name NarrationPack
+class_name DMPack
 extends RefCounted
 ## 旁白材料包（Models 层）：一个旁白回合的全部输入，组装后冻结不变。
 ## 注入配方（world_model_design §6.2，替换全量注入）：
@@ -55,7 +55,7 @@ func to_display_text() -> String:
 			entity_facts.size(), "、".join(names)])
 		_append_facts(p, entity_facts)
 	p.append("")
-	p.append("[b]■ ④ 本次探索流水（共 %d 行）[/b]" % history_lines.size())
+	p.append("[b]■ ④ 近期世界流水（最近 %d 行；持久后果已走临时事实通道）[/b]" % history_lines.size())
 	if history_lines.is_empty():
 		p.append("（这是第一个回合）")
 	else:

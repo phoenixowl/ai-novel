@@ -8,12 +8,14 @@ extends Node
 ## 注入由 DM 的 reject 路由拦截。
 ## 事件流水按统一格式追加，由 DM 的世界屏同源渲染；模型调用统一走 LLMController。
 ## 人物数据模型为 Person（knowledge 承载信念）；12 轮上限；结束后不可续聊。
-## 对外交互：DM（NarrationController）与世界屏经 EventBus 在 DialogueEvents 集线器上交互。
+## 对外交互：DM（DMController）与世界屏经 EventBus 在 DialogueEvents 集线器上交互。
 
 enum State {IDLE, WAITING_PLAYER, WAITING_NPC, ENDED}
 
 const MAX_TURNS := 12            # 单段对话轮次上限
-const EVENT_LOG_DIR := "user://dialogue_logs"
+const EVENT_LOG_DIR := GamePaths.EVENT_LOG_DIR
+## 叙述域事件注入对话材料包"此刻之前发生了什么"的行数
+const WORLD_CONTEXT_LINES := 6
 
 var repository: LoreRepository
 var prompt_builder := PromptBuilder.new()
@@ -31,45 +33,71 @@ var _audit_log := AuditLog.new()   # 本段对话的审计日志（事件流水 
 var _session := 0                # 会话编号：新开对话时递增，用于丢弃在途的旧请求
 var _events: DialogueEvents      # 事件集线器（_ready 时经总线取得）
 
+static var _shared: DialogueController
 
-## 取全局事件总线；autoload 未就绪时（仅测试环境）手动创建。
-func _bus() -> EventBus:
-	return EventBus.shared() if EventBus.shared() != null else EventBus.create_shared()
 
+static func shared() -> DialogueController:
+	return _shared
+
+## 测试/嵌入式环境兜底：autoload 未就绪时手动创建并注册共享实例（挂到当前场景树）
+static func create_shared() -> DialogueController:
+	if _shared == null:
+		_shared = DialogueController.new()
+		var loop := Engine.get_main_loop()
+		if loop is SceneTree:
+			(loop as SceneTree).root.add_child(_shared)
+	return _shared
 
 func _ready() -> void:
 	# LLM 服务兜底：正常运行由 autoload "LLM" 提供；独立使用引擎时手动创建
 	if LLMController.shared() == null:
 		LLMController.create_shared()
+	_shared = self
 	# 事件集线器：UI 与本类经同一实例交互
-	_events = _bus().hub(DialogueEvents) as DialogueEvents
+	_events = EventBus.resolve().hub(DialogueEvents) as DialogueEvents
 	# 流程一：加载设定资料（作者手动放置在 res://settings/ 下）
-	repository = LoreRepository.new()
-	repository.load_all()
+	repository = LoreRepository.shared()  # 统一入口：作者数据全项目一份
 	# 连接 UI 命令信号
 	_events.cmd_start.connect(_on_cmd_start)
 	_events.cmd_submit.connect(_on_cmd_submit)
 	_events.cmd_settle_now.connect(_on_cmd_settle_now)
 	_events.cmd_reset_memory.connect(_on_cmd_reset_memory)
 	# 人物域广播：设定被编辑后重载设定资料（见 _on_lore_changed）
-	(_bus().hub(CharacterEvents) as CharacterEvents).lore_changed.connect(_on_lore_changed)
+	(EventBus.resolve().hub(CharacterEvents) as CharacterEvents).lore_changed.connect(_on_lore_changed)
 
 
 func _exit_tree() -> void:
+	if _shared == self:
+		_shared = null
 	_audit_log.close()
 	if _events != null:
 		_events.cmd_start.disconnect(_on_cmd_start)
 		_events.cmd_submit.disconnect(_on_cmd_submit)
 		_events.cmd_settle_now.disconnect(_on_cmd_settle_now)
 		_events.cmd_reset_memory.disconnect(_on_cmd_reset_memory)
-		(_bus().hub(CharacterEvents) as CharacterEvents).lore_changed.disconnect(_on_lore_changed)
+		(EventBus.resolve().hub(CharacterEvents) as CharacterEvents).lore_changed.disconnect(_on_lore_changed)
 
 
 ## 人物域广播 lore_changed：设定资料已被编辑（CharacterController 写快照后发出）。
-## 重载设定资料、清提示词缓存。进行中的对话不中断——current_person 等引用保持旧对象，
-## 下一轮材料包按新资料组装。
+## 仓库被就地重载（load_all 原地替换 characters 等字典）；进行中的对话不中断——
+## 编辑保存路径在 reload 前原地改写同一 Person 对象，下一轮材料包即时生效；
+## 删除快照类操作（恢复卡面/还原设定）则另行经 discard_person_runtime 同步本域。
 func _on_lore_changed() -> void:
-	repository.load_all()
+	# 仓库由 Characters 在广播前 reload_shared()——此处只需清本域缓存
+	prompt_builder.clear_cache()
+
+
+## 人物域删除了某 NPC 的运行时档案（恢复卡面/还原设定）后调用：
+## 若正与该 NPC 对话，把内存对象切换到重载后的作者卡面并丢弃未结算的信念提案——
+## 否则对话结束的结算会把刚删除的旧快照原样写回，恢复操作被静默撤销。
+func discard_person_runtime(npc_id: String) -> void:
+	if current_person == null or current_person.entity_id != npc_id:
+		return
+	var fresh: Person = repository.characters.get(npc_id)
+	if fresh != null:
+		current_person = fresh
+		current_affinity = AffinityStore.get_value(npc_id, current_person.affinity)
+	_pending_learning.clear()
 	prompt_builder.clear_cache()
 
 
@@ -204,7 +232,7 @@ func _generate_response(player_text: String, confirmed_history: Array) -> void:
 	var session := _session
 
 	# 流程二：冻结现场，组装材料包（信念层全量 + 检索世界事实 + 世界上下文 + 记忆 + 行动清单）
-	var pack := MaterialPackBuilder.build(
+	var pack := DialoguePackBuilder.build(
 		current_person,
 		current_scene,
 		player_text,
@@ -268,7 +296,7 @@ func _generate_response(player_text: String, confirmed_history: Array) -> void:
 ## 把 parsed 中的 belief_updates 连同本轮闭集存入 _pending_learning，
 ## 由 end_dialogue → _settle_learning 一次性结算。
 ## parsed：ResponseParser 校验后的回应；player_text：本轮玩家原话；pack：本轮材料包。
-func _collect_learning(parsed: Dictionary, player_text: String, pack: MaterialPack) -> void:
+func _collect_learning(parsed: Dictionary, player_text: String, pack: DialoguePack) -> void:
 	var updates: Array = parsed.get("belief_updates", [])
 	if updates.is_empty():
 		return
@@ -325,12 +353,9 @@ func _retrieve_world_facts(npc_id: String) -> Array[CanonFact]:
 
 
 ## 统一入口的共享上下文：叙述域近期事件（"此刻之前发生了什么"）——
-## 只含叙述域（对话自身的记录另有槽位，避免重复）；DM 未就绪时为空。
+## 经 WorldStream 全局入口只读（硬线②）；不含对话回声（对话自身的记录另有槽位，避免重复）。
 func _world_context_lines() -> Array[String]:
-	var dm := NarrationController.shared()
-	if dm == null:
-		return []
-	return dm.recent_narration_lines()
+	return WorldStream.recent_narration_only_lines(WORLD_CONTEXT_LINES)
 
 
 ## 记忆整理：对话结算后用 LLM 从完整事件流归纳一段记忆写入日志。
@@ -350,7 +375,7 @@ func _summarize_memory() -> void:
 		str(prompts.get("system", "")), str(prompts.get("user", "")), LLMClient.PURPOSE_MEMORY,
 	)
 	if not result.get("ok", false):
-		CharacterController.save_journal(person_ref, npc_id)
+		CharacterController.shared().save_journal(person_ref, npc_id)
 		return
 	var data: Dictionary = result.get("data", {})
 	var memory_text := MemorySummarizer.extract(str(data.get("memory", "")))
@@ -372,7 +397,7 @@ func _summarize_memory() -> void:
 		else:
 			person_ref.learn_entry(content, str(d.get("evidence", "")), str(d.get("speaker", player_name)),
 				int(d.get("turn", 0)), session, str(d.get("note", "")))
-	CharacterController.save_journal(person_ref, npc_id)
+	CharacterController.shared().save_journal(person_ref, npc_id)
 
 
 ## 结算对话：仅玩家回合可用——结算学习提案并整理记忆后，直接结束本段对话，
@@ -387,7 +412,7 @@ func _on_cmd_settle_now() -> void:
 func _on_cmd_reset_memory() -> void:
 	if current_person == null:
 		return
-	CharacterController.erase_runtime_state(current_person.entity_id)
+	CharacterController.shared().erase_runtime_state(current_person.entity_id)
 	current_person.reset_knowledge_to_author()  # 快照已删：信念回落作者卡消解结果
 	current_person.memories = []
 	_pending_learning.clear()

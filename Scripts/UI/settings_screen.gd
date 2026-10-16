@@ -2,7 +2,7 @@ extends Control
 ## 设置屏（Scripts/UI/）：DeepSeek API 配置（Key/模型/测试连接/保存应用）与
 ## DM 风格四旋钮（即选即存）。输入审查开关已随统一入口退役（2026-10）。
 ## 玩家人设编辑已移至「人物」总览/编辑页（cmd_save_character）。
-## 与逻辑层的交互经 EventBus 集线器中转：连接 LlmEvents / NarrationEvents
+## 与逻辑层的交互经 EventBus 集线器中转：连接 LLMEvents / DMEvents
 ## 的相关信号、发射命令信号；返回主菜单经 UiEvents.navigate_requested。
 
 
@@ -10,17 +10,7 @@ const COLOR_SYSTEM := Color("#8d99ae")  # 中性提示文字颜色
 const COLOR_ERROR := Color("#e76f51")   # 测试失败的颜色
 const COLOR_OK := Color("#90be6d")       # 测试成功/保存成功的颜色
 
-## 旋钮定义：键名（NarrationEvents.cmd_set_knobs 的键）→ [控件, 选项列表, 说明]
-const KNOBS := [
-	{"key": "adoption", "options": ["宽松", "严格"], "label": "采纳度",
-		"hint": "玩家的想象力（想找什么、假设什么）被旁白接住的方式"},
-	{"key": "verdict", "options": ["宽松", "严格"], "label": "裁决倾向",
-		"hint": "行动成败的宽严：宽松多成功，严格常有失败与代价"},
-	{"key": "density", "options": ["简练", "浓墨"], "label": "描写密度",
-		"hint": "旁白叙述的详略"},
-	{"key": "threshold", "options": ["宽松", "严格"], "label": "正典门槛",
-		"hint": "次要新事实是否写入世界事实库（严格=只有大事实入库）"},
-]
+## 旋钮定义（键名/选项/说明）的唯一来源是 GameConfig.KNOB_DEFS——本屏只负责渲染。
 
 # —— 表单控件 ——
 @onready var api_key_edit: LineEdit = %ApiKeyEdit
@@ -30,40 +20,36 @@ const KNOBS := [
 @onready var knobs_box: VBoxContainer = %KnobsBox
 
 # —— 事件集线器 ——
-var _llm: LlmEvents        # LLM 域（API 配置与连接测试）
-var _narration: NarrationEvents  # 旁白域（风格旋钮）
+var _llm: LLMEvents        # LLM 域（API 配置与连接测试）
+var _dm: DMEvents  # 旁白域（风格旋钮）
 var _nav: UiEvents         # UI 导航
 
 # —— 状态缓存 ——
 var _api_key := ""                        # 已保存的 DeepSeek Key（表单回填用）
-var _model := LlmConfig.DEFAULT_MODEL     # 已保存的模型名
-var _max_tokens := LlmConfig.DEFAULT_MAX_TOKENS  # 已保存的输出上限
+var _model := LLMConfig.DEFAULT_MODEL     # 已保存的模型名
+var _max_tokens := LLMConfig.DEFAULT_MAX_TOKENS  # 已保存的输出上限
 var _knob_options: Array[Dictionary] = []  # 动态创建的旋钮 OptionButton（含 key 与选项表）
 
-
-## 取全局事件总线；autoload 未就绪时（理论上仅测试环境）手动创建。
-func _bus() -> EventBus:
-	return EventBus.shared() if EventBus.shared() != null else EventBus.create_shared()
 
 
 ## 初始化：填充模型下拉、构建旋钮区、取得集线器、连接事件并拉取快照。
 func _ready() -> void:
-	for model_name in LlmConfig.AVAILABLE_MODELS:
+	for model_name in LLMConfig.AVAILABLE_MODELS:
 		api_model_option.add_item(model_name)
 	_build_knobs()
-	_llm = _bus().hub(LlmEvents) as LlmEvents
-	_narration = _bus().hub(NarrationEvents) as NarrationEvents
-	_nav = _bus().hub(UiEvents) as UiEvents
+	_llm = EventBus.resolve().hub(LLMEvents) as LLMEvents
+	_dm = EventBus.resolve().hub(DMEvents) as DMEvents
+	_nav = EventBus.resolve().hub(UiEvents) as UiEvents
 	_llm.config.connect(_on_llm_config)
 	_llm.test_result.connect(_on_llm_test_result)
-	_narration.knobs_changed.connect(_on_knobs_changed)
+	_dm.knobs_changed.connect(_on_knobs_changed)
 	_nav.navigate_requested.connect(_on_navigate_requested)
 	_llm.cmd_get_config.emit()        # 拉取配置快照（UI 可能晚于逻辑层就绪）
 
 
 ## 构建旁白风格旋钮区（四行：说明 + 两档 OptionButton，即选即存）。
 func _build_knobs() -> void:
-	for def in KNOBS:
+	for def in GameConfig.KNOB_DEFS:
 		var options: Array = def["options"]
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
@@ -80,7 +66,7 @@ func _build_knobs() -> void:
 		for opt in options:
 			option.add_item(opt)
 		option.item_selected.connect(func(index: int):
-			_narration.cmd_set_knobs.emit({def["key"]: options[index]}))
+			_dm.cmd_set_knobs.emit({def["key"]: options[index]}))
 		row.add_child(option)
 		knobs_box.add_child(row)
 		_knob_options.append({"key": def["key"], "options": options, "node": option})
@@ -118,11 +104,11 @@ func _on_navigate_requested(screen: String) -> void:
 	if screen != "settings":
 		return
 	api_key_edit.text = _api_key
-	api_model_option.selected = maxi(0, LlmConfig.AVAILABLE_MODELS.find(_model))
+	api_model_option.selected = maxi(0, LLMConfig.AVAILABLE_MODELS.find(_model))
 	max_tokens_spin.set_value_no_signal(_max_tokens)
 	api_test_label.text = " "
 	api_test_label.add_theme_color_override("font_color", COLOR_SYSTEM)
-	_narration.cmd_get_knobs.emit()
+	_dm.cmd_get_knobs.emit()
 
 
 # ———— 玩家操作（信号已在场景 [connection] 中接线） ————
@@ -149,6 +135,6 @@ func _on_api_test_pressed() -> void:
 
 ## 当前选中的模型名（下拉无效时回落默认模型）。
 func _selected_model() -> String:
-	if api_model_option.selected >= 0 and api_model_option.selected < LlmConfig.AVAILABLE_MODELS.size():
-		return LlmConfig.AVAILABLE_MODELS[api_model_option.selected]
-	return LlmConfig.DEFAULT_MODEL
+	if api_model_option.selected >= 0 and api_model_option.selected < LLMConfig.AVAILABLE_MODELS.size():
+		return LLMConfig.AVAILABLE_MODELS[api_model_option.selected]
+	return LLMConfig.DEFAULT_MODEL

@@ -26,15 +26,11 @@ var _characters: CharacterEvents
 var _nav: UiEvents
 
 
-## 取全局事件总线；autoload 未就绪时（理论上仅测试环境）手动创建。
-func _bus() -> EventBus:
-	return EventBus.shared() if EventBus.shared() != null else EventBus.create_shared()
-
 
 ## 初始化：取得集线器、连接事件并拉取人物总览。
 func _ready() -> void:
-	_characters = _bus().hub(CharacterEvents) as CharacterEvents
-	_nav = _bus().hub(UiEvents) as UiEvents
+	_characters = EventBus.resolve().hub(CharacterEvents) as CharacterEvents
+	_nav = EventBus.resolve().hub(UiEvents) as UiEvents
 	_characters.characters_listed.connect(_on_characters_listed)
 	_characters.character_action_result.connect(_on_action_result)
 	_nav.navigate_requested.connect(_on_navigate_requested)

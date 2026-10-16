@@ -3,7 +3,7 @@ extends VBoxContainer
 ## 事实库浏览器（Scripts/UI/）：探索屏调试侧栏①页的交互版——
 ## 按类别（全局/地点/人物/势力）与实体筛选浏览世界事实正典，
 ## 逐条查看与修改（内容/权重）、新增（含作用域选择）、删除、显式保存。
-## 纯代码构建（由 narration_screen 挂到调试侧栏首个标签页）。
+## 纯代码构建（由 world_screen 挂到调试侧栏首个标签页）。
 ## 与逻辑层经 EventBus 中转：订阅 canon_listed 快照（CanonFact 模型），
 ## 编辑走 cmd_add/edit/delete_fact 命令，保存走 cmd_save_canon。
 
@@ -34,7 +34,7 @@ const LIST_ROW_MAX := 90  # 列表行内容截断长度（完整内容见编辑�
 
 var _entries: Array = []  # canon_listed 快照（CanonFact，含 superseded）
 
-var _narration: NarrationEvents
+var _dm: DMEvents
 var _category_option: OptionButton
 var _entity_option: OptionButton
 var _save_store_btn: Button
@@ -57,18 +57,14 @@ var _add_mode := false
 var _selected_id := 0
 
 
-## 取全局事件总线；autoload 未就绪时（理论上仅测试环境）手动创建。
-func _bus() -> EventBus:
-	return EventBus.shared() if EventBus.shared() != null else EventBus.create_shared()
-
 
 func _ready() -> void:
-	_narration = _bus().hub(NarrationEvents) as NarrationEvents
-	_narration.canon_listed.connect(_on_canon_listed)
-	_narration.canon_saved.connect(_on_canon_saved)
-	_narration.canon_reset.connect(_on_canon_reset)
+	_dm = EventBus.resolve().hub(DMEvents) as DMEvents
+	_dm.canon_listed.connect(_on_canon_listed)
+	_dm.canon_saved.connect(_on_canon_saved)
+	_dm.canon_reset.connect(_on_canon_reset)
 	_build()
-	_narration.cmd_get_canon.emit()  # 拉取快照（浏览器可能晚于控制器就绪）
+	_dm.cmd_get_canon.emit()  # 拉取快照（浏览器可能晚于控制器就绪）
 
 
 # ============================================================
@@ -100,7 +96,7 @@ func _build() -> void:
 	_save_store_btn = Button.new()
 	_save_store_btn.text = "保存"
 	_save_store_btn.tooltip_text = "显式保存事实库到本地文件（平时的增删改也会自动保存）"
-	_save_store_btn.pressed.connect(func(): _narration.cmd_save_canon.emit())
+	_save_store_btn.pressed.connect(func(): _dm.cmd_save_canon.emit())
 	filter_row.add_child(_save_store_btn)
 	_reset_btn = Button.new()
 	_reset_btn.text = "重置"
@@ -110,7 +106,7 @@ func _build() -> void:
 	_reset_confirm = ConfirmationDialog.new()
 	_reset_confirm.dialog_text = "确认把事实库重置为作者正典？\n探索中产生的事实与取代记录将被清除，人物信念不受影响。"
 	_reset_confirm.ok_button_text = "重置"
-	_reset_confirm.confirmed.connect(func(): _narration.cmd_reset_canon.emit())
+	_reset_confirm.confirmed.connect(func(): _dm.cmd_reset_canon.emit())
 	add_child(_reset_confirm)
 	_add_btn = Button.new()
 	_add_btn.text = "新增事实"
@@ -309,7 +305,9 @@ func _build_row(fact: CanonFact) -> Button:
 	if content.length() > LIST_ROW_MAX:
 		preview += "…"
 	var status := ""
-	if fact.status == CanonFact.FactStatus.SUPERSEDED:
+	if fact.status == CanonFact.FactStatus.PROVISIONAL:
+		status = "〔临时〕"
+	elif fact.status == CanonFact.FactStatus.SUPERSEDED:
 		status = "〔已被 [%d] 取代〕" % fact.superseded_by
 		btn.modulate = COLOR_MUTED
 	btn.text = "[%d]（%s · %s · %s）%s %s" % [
@@ -359,10 +357,13 @@ func _select(id: int) -> void:
 	_content_edit.text = fact.content
 	_weight_option.selected = maxi(0, WEIGHTS.find(CanonFact.weight_to_key(fact.weight)))
 	_source_option.visible = false
-	var superseded_note := " · 状态：已被取代（修改不改变其被取代地位）" \
-		if fact.status == CanonFact.FactStatus.SUPERSEDED else ""
+	var status_note := ""
+	if fact.status == CanonFact.FactStatus.SUPERSEDED:
+		status_note = " · 状态：已被取代（修改不改变其被取代地位）"
+	elif fact.status == CanonFact.FactStatus.PROVISIONAL:
+		status_note = " · 状态：临时（DM 行动申报；结算被整理者点名才转正，否则移除）"
 	_scope_label.text = "作用域：%s · 来源：%s%s" % [
-		_scope_names(fact), CanonFact.source_to_key(fact.source), superseded_note]
+		_scope_names(fact), CanonFact.source_to_key(fact.source), status_note]
 	_save_btn.text = "保存修改"
 	_delete_btn.visible = true
 	_refresh_list()
@@ -404,14 +405,14 @@ func _on_save_pressed() -> void:
 		var entity_id := _entity_filter()
 		if type >= 0 and entity_id.is_empty():
 			return  # 作用域类别必须选定具体实体
-		_narration.cmd_add_fact.emit({
+		_dm.cmd_add_fact.emit({
 			"content": content,
 			"weight": weight,
 			"source": SOURCES[clampi(_source_option.selected, 0, SOURCES.size() - 1)],
 			"scope_id": entity_id,
 		})
 	else:
-		_narration.cmd_edit_fact.emit({"id": _selected_id, "content": content, "weight": weight})
+		_dm.cmd_edit_fact.emit({"id": _selected_id, "content": content, "weight": weight})
 	_close_editor()
 
 
@@ -419,7 +420,7 @@ func _on_save_pressed() -> void:
 func _on_delete_pressed() -> void:
 	if _selected_id == 0:
 		return
-	_narration.cmd_delete_fact.emit(_selected_id)
+	_dm.cmd_delete_fact.emit(_selected_id)
 	_close_editor()
 
 

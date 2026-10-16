@@ -3,14 +3,16 @@ extends RefCounted
 ## 世界事实条目（Models 层）：正典（CanonStore）里的一条客观事实——
 ## "世界里确定成立/发生过的事"，是整个世界状态的原子单位。
 ## scope 是实体 id 列表（空 = 全局）；类型可由 EntityRegistry 反查，不冗余存储。
+## PROVISIONAL（临时）：DM 行动回合申报的持久事实——立即入典、可检索、可被信念引用，
+## 结算时由整理者复核：矛盾走取代（SUPERSEDED），其余转正（ACTIVE）。
 
 enum FactSource { NARRATOR, PLAYER }
 enum FactWeight { MAJOR, MINOR }
-enum FactStatus { ACTIVE, SUPERSEDED }
+enum FactStatus { ACTIVE, SUPERSEDED, PROVISIONAL }
 
 const SOURCE_KEYS := ["narrator", "player"]
 const WEIGHT_KEYS := ["major", "minor"]
-const STATUS_KEYS := ["active", "superseded"]
+const STATUS_KEYS := ["active", "superseded", "provisional"]
 
 
 static func source_to_key(value: int) -> String:

@@ -62,15 +62,11 @@ var _entries: Array[Dictionary] = []    # {seq, content, speaker, trust_view}
 var _memories: Array[String] = []       # 记忆文本
 
 
-## 取全局事件总线；autoload 未就绪时（理论上仅测试环境）手动创建。
-func _bus() -> EventBus:
-	return EventBus.shared() if EventBus.shared() != null else EventBus.create_shared()
-
 
 ## 初始化：取得集线器、连接事件、填充信任下拉。
 func _ready() -> void:
-	_characters = _bus().hub(CharacterEvents) as CharacterEvents
-	_nav = _bus().hub(UiEvents) as UiEvents
+	_characters = EventBus.resolve().hub(CharacterEvents) as CharacterEvents
+	_nav = EventBus.resolve().hub(UiEvents) as UiEvents
 	_characters.character_loaded.connect(_on_character_loaded)
 	_characters.character_saved.connect(_on_character_saved)
 	_characters.character_action_result.connect(_on_action_result)
@@ -408,7 +404,7 @@ func _on_write_back_pressed() -> void:
 
 ## 「对话」：跳转世界屏并直接与该 NPC 开始交谈（统一入口；场景为当前位置）。
 func _on_talk_pressed() -> void:
-	_nav.navigate_requested.emit("narration")
+	_nav.navigate_requested.emit("world")
 	_nav.dialogue_requested.emit(_character_id)
 
 

@@ -69,7 +69,7 @@ func _run() -> void:
 	failures = TestUtil.check(packs_seen.size() == 1, "材料包事件发出 1 次", failures)
 	failures = TestUtil.check(prompts_seen.size() == 1, "提示词事件发出 1 次", failures)
 	failures = TestUtil.check(responses_seen.size() == 1, "回应事件发出 1 次", failures)
-	var pack1 := packs_seen[0] as MaterialPack
+	var pack1 := packs_seen[0] as DialoguePack
 	failures = TestUtil.check(pack1.turn_number == 1, "材料包轮次为 1", failures)
 	failures = TestUtil.check(pack1.knowledge_entries.size() == 12, "材料包注入知识日志 12 条", failures)
 	# 延后结算验证：对话期间不写知识日志
@@ -83,7 +83,7 @@ func _run() -> void:
 	# —— 第二轮：情绪税（含信念佐证提案——延后，此轮仍无事件） ——
 	ev.cmd_submit.emit("好吧。对了，这个月情绪税是不是又涨了？")
 	await _wait_until(engine, "等待玩家输入", 10.0)
-	var pack2 := packs_seen[1] as MaterialPack
+	var pack2 := packs_seen[1] as DialoguePack
 	failures = TestUtil.check(pack2.turn_number == 2, "材料包轮次为 2", failures)
 	failures = TestUtil.check(pack2.dialogue_history.size() == 2, "第二轮记忆槽含 2 条已确认记录", failures)
 	failures = TestUtil.check(_events_of(events_seen, "belief_updated").is_empty(), "延后结算：对话期间无信念更新事件", failures)

@@ -3,7 +3,7 @@ extends Node
 ## 全局事件总线（Common 层，autoload "Events"）：逻辑层与 UI 层之间的唯一中转。
 ##
 ## 设计约束：总线对业务一无所知——不声明、不感知任何信号。各领域把“事件契约”
-## 写在自己的集线器文件里（原生强类型 signal，如 DialogueEvents / LlmEvents），
+## 写在自己的集线器文件里（原生强类型 signal，如 DialogueEvents / LLMEvents），
 ## 总线只负责按脚本单例化并分发这些集线器：
 ##   引擎/服务侧：var ev := bus.hub(DialogueEvents) as DialogueEvents; ev.state_changed.emit(...)
 ##   UI/测试侧：  (bus.hub(DialogueEvents) as DialogueEvents).state_changed.connect(handler)
@@ -20,6 +20,12 @@ var _hubs := {}  # 脚本资源路径(String) -> 集线器实例(RefCounted)
 ## 取共享总线实例（autoload 未就绪时为 null）。
 static func shared() -> EventBus:
 	return _shared
+
+
+## 取共享总线实例，未就绪时自动创建（测试/嵌入式环境兜底）——全项目取总线的唯一入口，
+## 取代各脚本里重复的 _bus() 两行兜底。
+static func resolve() -> EventBus:
+	return _shared if _shared != null else create_shared()
 
 
 ## 测试/嵌入式环境兜底：autoload 未就绪时手动创建并注册共享实例

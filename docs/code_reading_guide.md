@@ -28,8 +28,8 @@
 |---|---|---|---|
 | `Events` | `Scripts/Common/event_bus.gd` | 按"契约脚本"单例化并分发信号的总线 | 不感知任何业务信号 |
 | `LLM` | `Scripts/LLM/llm_controller.gd` | 唯一的模型入口：`complete` / `complete_json` | 不理解内容，只搬运 |
-| `Characters` | `Scripts/Lore/character_controller.gd` | 人物运行时快照的读写入口（cmd_save/reset/write_back…） | 不参与对话流程 |
-| `Narration` | `Scripts/Narration/narration_controller.gd` | **DM**：统一入口裁决、位置图、事实正典、探索结算 | 不读不写 NPC 信念（硬线①） |
+| `Characters` | `Scripts/Characters/character_controller.gd` | 人物运行时快照的读写入口（cmd_save/reset/write_back…） | 不参与对话流程 |
+| `DM` | `Scripts/DM/dm_controller.gd` | **DM**：统一入口裁决、行动叙述、探索结算 | 不读不写 NPC 信念（硬线①） |
 | `Dialogue` | `Scripts/Dialogue/dialogue_controller.gd` | NPC 对话回合状态机（12 轮上限） | 对正典只读（硬线②） |
 
 三条读代码时最有用的规则：
@@ -37,8 +37,8 @@
 - **域之间几乎不直连**。唯一例外：DM 通过 DialogueEvents 的 `cmd_start` / `cmd_submit`
   / `cmd_settle_now` 调度对话，以及双方都订阅 `CharacterEvents.lore_changed`
   （人物被编辑 → 两域各自重载设定资料）。
-- **静态 Store 是惰性的**。`CanonStore` / `EntityRegistry` / `LocationStore`
-  （Narration 层）是静态类，任何公开 API 首次调用时自动读盘
+- **静态 Store 是惰性的**。`CanonStore` / `EntityRegistry` / `LocationStore` / `WorldStream`
+  （World 层）是静态类，任何公开 API 首次调用时自动读盘
   （`user://world/*.json`）并播种作者正典——所以 autoload 初始化顺序不影响正确性。
 - **模型输出永不直接改世界**。所有写入都收敛到少数几个引擎函数：
   `CanonStore.establish / supersede`、`Person.learn_entry / learn_ref / corroborate /
@@ -77,9 +77,9 @@ UI 内部的屏幕切换走 `Scripts/UI/ui_events.gd`（navigate_requested 等�
 | supersede | 事实被新表述取代：旧条目标记指向新条目，不删除 | `CanonStore.supersede` |
 | 信念 | 某 NPC 私有的知识日志；三形态：CARD（作者卡）/ SUBJECTIVE（主观）/ REF（指向正典的引用） | `KnowledgeEntry` |
 | 信任算术 | 佐证 +1 档 / 矛盾 −1 档 / 已失效可复活，全确定性 | `KnowledgeEntry.apply_*` |
-| 材料包 | 一轮请求的全部输入，组装后**冻结不变** | `MaterialPack`（对话）/ `NarrationPack`（DM） |
-| 世界流水 | 叙述事件 + 对话回声的单一混排数组，DM 上下文 / 屏幕渲染 / 结算提取三处共用 | `NarrationController.events` |
-| 闭集 | 模型只能引用"本轮展示过的编号"，越界即钳制/丢弃 | `NarrationParser` / `DialogueController._settle_learning` |
+| 材料包 | 一轮请求的全部输入，组装后**冻结不变** | `DialoguePack`（对话）/ `DMPack`（DM） |
+| 世界流水 | 叙述事件 + 对话回声的单一混排数组，DM 上下文 / 屏幕渲染 / 结算提取三处共用 | `DMController.events` |
+| 闭集 | 模型只能引用"本轮展示过的编号"，越界即钳制/丢弃 | `DMParser` / `DialogueController._settle_learning` |
 | brief | 首次进场的描述，生成一次后冻结，重进零调用 | `LocationStore.set_brief` |
 | 快照 | `user://characters/<id>.json`，persona 区 + journal 区，一切人物修改落这里 | `SnapshotStore` |
 
@@ -92,15 +92,15 @@ UI 内部的屏幕切换走 `Scripts/UI/ui_events.gd`（navigate_requested 等�
 
 ```
 世界屏输入框
-   │ NarrationEvents.cmd_submit_input
+   │ DMEvents.cmd_submit_input
    ▼
-NarrationController._on_cmd_submit_input ──门控：WAITING_PLAYER 且对话不忙
+DMController._on_cmd_submit_input ──门控：WAITING_PLAYER 且对话不忙
    ▼ _resolve_with_dm
-组装 DM 材料（NarrationPackBuilder.build：地点事实+全局提要+提及实体扫描+全量探索流水）
-拼两层提示词（NarrationPromptBuilder.dm_system_prompt / dm_user_prompt）
+组装 DM 材料（DMPackBuilder.build：地点事实+全局提要+提及实体扫描+全量探索流水）
+拼两层提示词（DMPromptBuilder.dm_system_prompt / dm_user_prompt）
    │ LLM.complete_json(…, PURPOSE_DM)          ← 全程唯一一次 DM 调用
    ▼
-NarrationParser.validate_dm：route 枚举 / npc 在场闭集钳制 / outcome 回落
+DMParser.validate_dm：route 枚举 / npc 在场闭集钳制 / outcome 回落
    ▼ match route
    ├─ reject  → world_input_rejected：理由广播，原话退回输入框
    ├─ action  → _land_action：流水 += player_action + narration_turn
@@ -114,7 +114,7 @@ NarrationParser.validate_dm：route 枚举 / npc 在场闭集钳制 / outcome �
 DialogueController.start_dialogue（同步：状态→WAITING_PLAYER，发 dialogue_started）
    ▼ submit_player_input → _accept_player_text：轮次+1，玩家原话入流水
 _generate_response：
-   MaterialPackBuilder.build（冻结现场：信念+检索正典+世界上下文+记忆+行动清单）
+   DialoguePackBuilder.build（冻结现场：信念+检索正典+世界上下文+记忆+行动清单）
    PromptBuilder.system_prompt（按 NPC 缓存）+ user_prompt（材料包直渲染）
    │ LLM.complete_json(…, PURPOSE_DIALOGUE)
    ▼
@@ -125,16 +125,16 @@ _land_response：answer/silence 入流水；end_dialogue → end_dialogue()
 _settle_learning：攒了一路的 belief_updates 逐条过闭集 → 信任算术
 _summarize_memory：LLM 提取记忆与知识（PURPOSE_MEMORY）→ 写 Person → save_journal 落盘
    ▼ dialogue_ended 信号
-NarrationController._on_dialogue_ended_signal：清结算窗口 → 续送 _pending_switch
+DMController._on_dialogue_ended_signal：清结算窗口 → 续送 _pending_switch
 ```
 
 对话期间，每条对话事件经 `DialogueEvents.event_appended` 双路广播：
-世界屏画气泡（`narration_screen._append_bubble`），DM 域打上 `domain="dialogue"`
+世界屏画气泡（`world_screen._append_bubble`），DM 域打上 `domain="dialogue"`
 副本并入世界流水（`_on_dialogue_event`）——所以屏幕、DM 上下文、结算提取看到的
 是同一条流。
 
-探索的终点是**结算**（`cmd_settle_narration`）：整理者 agent 通读整段世界流水
-（PURPOSE_FACT_EXTRACT），`NarrationParser.validate_facts` 过闭集后
+探索的终点是**结算**（`cmd_settle_exploration`）：整理者 agent 通读整段世界流水
+（PURPOSE_FACT_EXTRACT），`DMParser.validate_facts` 过闭集后
 `establish` / `supersede` 落进正典——这是事实入库的唯一通道。
 
 ---
@@ -146,10 +146,11 @@ NarrationController._on_dialogue_ended_signal：清结算窗口 → 续送 _pend
 ```
 Scripts/
 ├─ Common/
-│     event_bus.gd            ★ 总线：hub() 按契约脚本单例化
+│     event_bus.gd            ★ 总线：hub() 按契约脚本单例化；resolve() 是取总线的唯一入口
 │     json_tool.gd            ★ 围栏剥离/括号配平提取/宽容键名读取（全项目唯一实现处）
 │     audit_log.gd              jsonl 追加日志（user://dialogue_logs/）
-│     game_config.gd            DM 风格四旋钮的持久化（[game] 节）
+│     game_config.gd            DM 风格四旋钮的持久化（[game] 节；KNOB_DEFS 是旋钮定义唯一来源）
+│     game_paths.gd             user:// 目录布局常量的唯一登记处（如对话审计日志目录）
 ├─ LLM/
 │     llm_client.gd             抽象基类 + PURPOSE_* 用途常量 + retire 防悬挂机制
 │     llm_controller.gd       ★ autoload "LLM"：complete_json 容错解析 {ok,transport,data,raw}
@@ -164,37 +165,49 @@ Scripts/
 │     canon_fact.gd             事实条目（source/weight/status/scope）
 │     location.gd / faction.gd  地点（含运行期 brief/npcs）/ 组织
 │     material_pack.gd / narration_pack.gd    两种冻结材料包（含调试页渲染）
-├─ Lore/                        人物域
+├─ Characters/                 人物域（与 autoload "Characters" 对齐）
 │     character_controller.gd   autoload "Characters"：保存/恢复/写回/还原 + 启动 relink
-│     lore_repository.gd        聚合 res://settings/ → Person/Location/Faction 模型
-│     snapshot_store.gd         user://characters/<id>.json 双区读写
+│     lore_repository.gd        作者数据统一入口 shared()/reload_shared()：聚合 res://settings/ → 模型
+│     snapshot_store.gd         user://characters/<id>.json 双区读写（class_name 静态存取器）
 │     affinity_store.gd         好感度 −100..100 与档位文案
 │     character_events.gd       契约（lore_changed 是唯一跨域握手）
-├─ Narration/                   DM / 行动域
-│     narration_controller.gd ★ autoload "Narration"：状态机五态 + 裁决分派 + 落地 + 结算
+├─ DM/                          裁决层：统一入口的裁判（DM）
+│     dm_controller.gd       ★ autoload "DM"：状态机五态 + 裁决分派 + 落地 + 结算
+│     world_stream.gd          世界流水唯一数据源（叙述+对话回声混排；DM 上下文/渲染/结算共用）
+├─ World/                      世界状态层
 │     canon_store.gd          ★ 静态正典：establish/supersede/作用域检索/惰性播种
 │     entity_registry.gd        静态实体注册表：resolve 别名解析 / scan_mentioned 提及扫描
 │     location_store.gd         静态位置图：邻接表 + 当前位置 + brief/npcs
-│     narration_pack_builder.gd DM 材料包组装（§6.2 配方①②③④；⑤命名闭集已移除——从未进提示词）
-│     narration_prompt_builder.gd  DM 两层提示词 + 进场描述 + 事实提取提示词
-│     narration_parser.gd       DM 裁决 / 事实提取 / (弃用)回合 三种契约校验
+│     dm_pack_builder.gd       DM 材料包组装（§6.2 配方①②③④）
+│     dm_prompt_builder.gd      DM 两层提示词 + 进场描述 + 事实提取提示词
+│     dm_parser.gd              DM 裁决 / 事实提取 两种契约校验
 ├─ Dialogue/                    人物域
 │     dialogue_controller.gd  ★ autoload "Dialogue"：状态机 + 生成主链 + 延后学习结算
-│     material_pack_builder.gd  对话材料包组装
+│     dialogue_pack_builder.gd  对话材料包组装
 │     prompt_builder.gd         NPC 两层提示词（静态层按 NPC 缓存；好感度经材料包走材料层）
 │     response_parser.gd        回应四要素校验（坏字段安全回落并记 notes）
 │     memory_summarizer.gd      结算时提取记忆/知识的提示词
 │     dialogue_events.gd        契约
-│     input_reviewer.gd         （已弃用，无人调用）
+├─ Authortool/                   作者工具（架构豁免：作者侧工具，无 autoload/集线器，
+│                                草稿+导出在 RefCounted 模型层，页面直接操作草稿）
+│     authortool_draft.gd        草稿模型：res://settings + 运行时正典 + 风格旋钮 → 内存编辑对象
+│     authortool_exporter.gd     一键导出：user://authortool_export/<时间戳>/ 完整作者数据包
+│     authortool_screen.gd       外壳屏：六子页导航 + 重新载入/一键导出
+│     authortool_page.gd        子页基类：setup/apply_draft 统一形态（外壳静态分发）
+│     authortool_list_page.gd    列表型子页基座（左列表增删 + 右表单，选中即编辑）
+│     authortool_world_page.gd / authortool_style_page.gd     世界观主线 / DM 风格四旋钮
+│     authortool_factions_page.gd / authortool_characters_page.gd
+│     authortool_scenes_page.gd / authortool_facts_page.gd    组织 / 人物 / 场景 / 事实库
+│     authortool_widgets.gd      共享控件构建器（暗色样式，各页复用）
 └─ UI/                          只发 cmd、只收 evt
       main_ui.gd                五屏切换
-      narration_screen.gd     ★ 世界屏：门控合成、气泡渲染、调试侧栏四页
+      world_screen.gd        ★ 世界屏：门控合成、气泡渲染、调试侧栏四页
       fact_browser.gd           侧栏①事实库（增删改/保存/重置）
       characters_screen.gd / character_edit_screen.gd   人物卡片墙 / 编辑表单
       settings_screen.gd        API 配置 + 风格旋钮（即选即存）
       main_menu_screen.gd       菜单
 Scenes/main.tscn                 唯一入口场景（实例化五个子屏）
-tests/                           三个 headless 测试（见 §7）
+tests/                           三个 headless 测试：smoke / engine_loop / dm_loop（见 §7）
 ```
 
 ---
@@ -228,7 +241,7 @@ user://                    运行期状态（Windows: %APPDATA%\Godot\app_userda
 godot --headless -s tests/smoke_test.gd          # 纯逻辑：JSON 工具/设定加载/信任算术/
                                                   # 材料包/提示词/两个 Parser/正典语义
 godot --headless -s tests/engine_loop_test.gd    # 对话域端到端（经总线，强制离线）
-godot --headless -s tests/narration_loop_test.gd # DM 统一入口端到端（三条路由→结算全链路）
+godot --headless -s tests/dm_loop_test.gd       # DM 统一入口端到端（三条路由→结算全链路）
 ```
 
 两个回路测试的模式：`EventBus.create_shared()` + `LLMController.create_shared()`
@@ -245,8 +258,8 @@ Mock 客户端按 PURPOSE 与玩家话题挑预制样本，所以测试断言是
 
 | 想做的事 | 动哪里 |
 |---|---|
-| 给 DM 加一种路由 | `NarrationParser.ROUTES` + `_build_dm_system` 路由规则 + `_resolve_with_dm` 的 match + `MockClient._dm_route_sample`（离线样本） |
-| 加一种 NPC 行动类型 | `MaterialPackBuilder.dialogue_actions()` + `ResponseParser.ACTION_TYPES` + `DialogueController._land_response` |
+| 给 DM 加一种路由 | `DMParser.ROUTES` + `_build_dm_system` 路由规则 + `_resolve_with_dm` 的 match + `MockClient._dm_route_sample`（离线样本） |
+| 加一种 NPC 行动类型 | `DialoguePackBuilder.dialogue_actions()` + `ResponseParser.ACTION_TYPES` + `DialogueController._land_response` |
 | 换/加模型供应商 | 派生 `LLMClient` 子类实现 `complete()`，`LLMController._apply_config` 挂上；purpose 常量在 `llm_client.gd` |
 | 新增一种 AI 功能 | 订阅自己的 cmd + 发自己的 evt + `await LLM.complete_json(sys, usr, PURPOSE_你新加的)`——参考事实整理者的接线 |
 | 调 NPC 说话风格 | `PromptBuilder._build_system`（静态层）；调 DM 文风 → 设置屏四旋钮（只改措辞不改结构） |
@@ -261,3 +274,6 @@ Mock 客户端按 PURPOSE 与玩家话题挑预制样本，所以测试断言是
    `lore_changed`（广播）和 DM 调度对话（cmd_*）两个口。
 4. **一切人物/世界修改必须落盘**：走 `SnapshotStore.write_journal` /
    `CanonStore.save` / `AffinityStore.set_value`，别只改内存对象。
+5. **三个全局入口，别绕**：作者数据只取 `LoreRepository.shared()`（重载只在 Characters 写完快照后
+   调 `reload_shared()` 再广播 lore_changed）；世界流水只经 `WorldStream`（对话域只读）；
+   人物域服务（save_journal 等）经 `CharacterController.shared()` 实例调用。

@@ -279,7 +279,7 @@ func to_prompt_dict() -> Dictionary:
 	return {"name": canonical_name, "identity": identity, "appearance": appearance}
 
 
-## 作者卡写回格式（仅作者字段）。
+## 作者卡写回格式（仅作者字段；aliases/factions/affinity 一并带回，写回不丢组织归属）。
 func to_author_dict() -> Dictionary:
 	var knowledge_out: Array = []
 	for e in knowledge:
@@ -289,10 +289,17 @@ func to_author_dict() -> Dictionary:
 			"trust": KnowledgeEntry.TRUST_VOID_KEY if e.status == KnowledgeEntry.EntryStatus.VOIDED
 				else KnowledgeEntry.trust_to_key(e.trust),
 		})
-	return {
+	var out := {
 		"id": entity_id,
 		"name": canonical_name,
 		"identity": identity,
 		"profile": profile,
 		"knowledge": knowledge_out,
 	}
+	if not aliases.is_empty():
+		out["aliases"] = aliases
+	if affinity != 0:
+		out["affinity"] = affinity
+	if not faction_ids.is_empty():
+		out["factions"] = Array(faction_ids)
+	return out

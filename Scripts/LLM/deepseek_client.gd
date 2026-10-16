@@ -18,8 +18,8 @@ const TIMEOUT_SECONDS := 60.0
 const WATCHDOG_MARGIN := 10.0
 
 var api_key := ""
-var model := LlmConfig.DEFAULT_MODEL
-var max_tokens := LlmConfig.DEFAULT_MAX_TOKENS  # 单次补全输出上限（LLMController 按配置下发）
+var model := LLMConfig.DEFAULT_MODEL
+var max_tokens := LLMConfig.DEFAULT_MAX_TOKENS  # 单次补全输出上限（LLMController 按配置下发）
 
 
 func display_name() -> String:
@@ -43,7 +43,7 @@ func complete(system_prompt: String, user_prompt: String, _purpose := PURPOSE_DI
 			{"role": "user", "content": user_prompt},
 		],
 		"temperature": 0.8,
-		"max_tokens": clampi(max_tokens, LlmConfig.MIN_MAX_TOKENS, LlmConfig.MAX_MAX_TOKENS),
+		"max_tokens": clampi(max_tokens, LLMConfig.MIN_MAX_TOKENS, LLMConfig.MAX_MAX_TOKENS),
 	}
 	# JSON 输出模式：官方文档示例基于 deepseek-flash；v4-pro 未明确支持，暂不开启。
 	# 官方要求提示词中出现 “json” 字样并给出格式示例（静态层已满足）。

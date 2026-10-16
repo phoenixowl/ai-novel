@@ -1,4 +1,4 @@
-class_name LlmEvents
+class_name LLMEvents
 extends RefCounted
 ## LLM 域事件契约（LLM 层）：UI 与 LLMController 之间的全部交互信号。
 ## 本文件只声明信号，不含任何逻辑——EventBus（autoload "Events"）按脚本单例化
