@@ -28,6 +28,45 @@ const GLOBAL_DIGEST_CAP := 40
 static var _entries: Array[CanonFact] = []
 static var _next_id := 1
 static var _loaded := false
+static var _version := 0  # 正典变更计数器：FactIndex 等派生结构的缓存键
+static var _embed_model := ""  # 生成现存向量所用模型名（换模型时由调用方清空向量）
+
+
+## 正典版本号（每次任何写入 +1；派生结构据此感知变更、惰性重建）。
+static func version() -> int:
+	return _version
+
+
+## 现存向量对应的嵌入模型名（随 canon.json 持久化）。
+static func embedding_model() -> String:
+	return _embed_model
+
+
+## 记录嵌入模型名（嵌入管线完成后调用；随下次 save 落盘）。
+static func note_embedding_model(model: String) -> void:
+	_embed_model = model
+
+
+## 清空全部事实向量（换嵌入模型 / provider 关闭时调用；下次 save 落盘）。
+static func clear_embeddings() -> void:
+	var changed := false
+	for fact in _entries:
+		if not fact.embedding.is_empty():
+			fact.embedding = PackedFloat32Array()
+			changed = true
+	if changed:
+		_embed_model = ""
+		_version += 1
+
+
+## 尚未嵌入向量、需要补齐的事实（现行 + 临时）。
+static func facts_missing_embeddings() -> Array[CanonFact]:
+	_ensure_loaded()
+	var out: Array[CanonFact] = []
+	for fact in _entries:
+		if fact.status != CanonFact.FactStatus.SUPERSEDED and fact.embedding.is_empty():
+			out.append(fact)
+	return out
 
 
 ## 确保已从磁盘加载（所有公开 API 的入口守卫）。
@@ -38,11 +77,13 @@ static func _ensure_loaded() -> void:
 	var data := JsonTool.read_json_file(PATH)
 	if not data.is_empty():
 		_next_id = maxi(1, int(data.get("next_id", 1)))
+		_embed_model = str(data.get("embedding_model", ""))
 		var raw_entries: Variant = data.get("entries", [])
 		if raw_entries is Array:
 			for item in raw_entries:
 				if item is Dictionary:
 					_entries.append(CanonFact.from_dict(item))
+			_version += 1
 	_seed_authors()
 
 
@@ -67,7 +108,8 @@ static func save() -> void:
 	var entries: Array = []
 	for fact in _entries:
 		entries.append(fact.to_dict())
-	JsonTool.write_json_file(PATH, {"next_id": _next_id, "entries": entries})
+	JsonTool.write_json_file(PATH, {"next_id": _next_id, "embedding_model": _embed_model,
+		"entries": entries})
 
 
 # ———— 写入 ————
@@ -87,6 +129,7 @@ static func establish(content: String, source_key: String, weight_key: String, s
 		if fact.status != CanonFact.FactStatus.SUPERSEDED and fact.content == text:
 			if not provisional and fact.status == CanonFact.FactStatus.PROVISIONAL:
 				fact.status = CanonFact.FactStatus.ACTIVE
+				_version += 1
 			return fact.id
 	var fact := CanonFact.new()
 	fact.id = _next_id
@@ -101,6 +144,7 @@ static func establish(content: String, source_key: String, weight_key: String, s
 			fact.scope.append(sid)
 	fact.created_at = Time.get_datetime_string_from_system()
 	_entries.append(fact)
+	_version += 1
 	return fact.id
 
 
@@ -117,6 +161,7 @@ static func supersede(ref: int, new_content: String, source_key: String, weight_
 		return {"old_id": ref, "new_id": new_id}  # 文本与某 active 条目相同（含自身）——无需取代
 	old.status = CanonFact.FactStatus.SUPERSEDED
 	old.superseded_by = new_id
+	_version += 1
 	return {"old_id": ref, "new_id": new_id}
 
 
@@ -151,6 +196,8 @@ static func settle_provisional(confirmed_ids: Array) -> Dictionary:
 			confirmed += 1
 		elif erase(fact.id):
 			discarded += 1
+	if confirmed > 0 or discarded > 0:
+		_version += 1
 	return {"confirmed": confirmed, "discarded": discarded}
 
 
@@ -169,6 +216,7 @@ static func erase(id: int) -> bool:
 	for fact in _entries:
 		if fact.superseded_by == id:
 			fact.superseded_by = 0
+	_version += 1
 	return true
 
 
@@ -286,6 +334,7 @@ static func reset_to_authors() -> int:
 	if FileAccess.file_exists(PATH):
 		DirAccess.remove_absolute(PATH)
 	_seed_authors()
+	_version += 1
 	return _entries.size()
 
 
@@ -294,6 +343,8 @@ static func reset_for_test() -> void:
 	_entries = []
 	_next_id = 1
 	_loaded = true
+	_embed_model = ""
+	_version += 1
 
 
 ## 清空内存并强制重载（读盘 + 作者播种；测试用）。

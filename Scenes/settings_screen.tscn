@@ -132,6 +132,48 @@ layout_mode = 2
 theme_override_constants/separation = 6
 
 
+[node name="EmbeddingHSeparator" type="HSeparator" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+
+[node name="EmbeddingCaption" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = "事实召回检索（语义层档位：内置 BM25 无需配置；向量检索需第二家 API Key，失败自动回落内置）"
+
+[node name="EmbeddingProviderOption" type="OptionButton" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="EmbeddingBaseUrlEdit" type="LineEdit" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Embedding 服务地址（OpenAI 兼容 /embeddings）"
+
+[node name="EmbeddingModelEdit" type="LineEdit" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Embedding 模型名（如 BAAI/bge-m3）"
+
+[node name="EmbeddingKeyEdit" type="LineEdit" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Embedding API Key（内置 BM25 档留空）"
+secret = true
+
+[node name="EmbeddingSaveBtn" type="Button" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "保存检索设置并应用"
+
+[node name="EmbeddingStatus" type="Label" parent="SettingsCenter/SettingsPanel/SettingsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
+theme_override_font_sizes/font_size = 13
+text = " "
+
 [node name="SettingsSaveBtn" type="Button" parent="SettingsCenter/SettingsPanel/SettingsBox" unique_id=891566177]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)
@@ -145,5 +187,6 @@ layout_mode = 2
 text = "返回主菜单"
 
 [connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/TestRow/TestBtn" to="." method="_on_api_test_pressed"]
+[connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/EmbeddingSaveBtn" to="." method="_on_embedding_save_pressed"]
 [connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/SettingsSaveBtn" to="." method="_on_settings_save_pressed"]
 [connection signal="pressed" from="SettingsCenter/SettingsPanel/SettingsBox/SettingsBackBtn" to="." method="_on_back_pressed"]

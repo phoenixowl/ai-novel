@@ -219,7 +219,7 @@ UI 层不创建、不持有任何逻辑层实例。各域控制器以 autoload �
 
 ```json
 {
-  "id": "shen_moyan", "name": "沈墨言",
+  "id": "wen_xu", "name": "温叙",
   "identity": "…", "personality": "…", "speech_style": "…", "mood_baseline": "平和"
 }
 ```
@@ -231,8 +231,8 @@ UI 层不创建、不持有任何逻辑层实例。各域控制器以 autoload �
 {
   "factions": ["jadelight_guild"],
   "knowledge": [
-    {"content": "茶馆后巷的仓库上个月换了新的黄铜锁", "source": "目睹", "trust": "绝对可信"},
-    {"content": "城里米价最近涨了两三成", "source": "听说：粮行掌柜", "trust": "比较相信"}
+    {"content": "作坊市街的EI屏上个月跌破过一次警戒线", "source": "目睹", "trust": "绝对可信"},
+    {"content": "城里的晶石价最近涨了两三成", "source": "听说：茶客", "trust": "比较相信"}
   ]
 }
 ```
@@ -245,7 +245,7 @@ UI 层不创建、不持有任何逻辑层实例。各域控制器以 autoload �
   "factions": [
     {"id": "jadelight_guild", "name": "翡翠市商会",
      "description": "……",
-     "members": [{"name": "沈墨言", "position": "理事"}]}
+     "members": [{"name": "温叙", "position": "理事"}]}
   ]
 }
 ```

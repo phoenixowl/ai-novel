@@ -1,129 +1,57 @@
 {
   "facts": [
-    {
-      "content": "天穹台的守卫是机器人，只认铭牌不认人",
-      "weight": "minor"
-    },
-    {
-      "content": "欲望之都市政府是城市的管理层，由市长直辖，最关心的就是情绪税的缴纳",
-      "weight": "minor",
-      "scope": ["city_gov"]
-    },
-    {
-      "content": "伊甸公司是白银廊的大企业，研究“灵魂增强”技术",
-      "weight": "minor",
-      "scope": ["eden_soul"]
-    },
-    {
-      "content": "伊甸公司的招牌药“灵感剂”能人为压低灵魂阻抗让普通人高强度施法，副作用是加速魔力过载",
-      "weight": "minor",
-      "scope": ["eden_soul"]
-    },
-    {
-      "content": "听雨楼是城里最大的情报贩子组织，据点藏在黑潮带，消息明码标价",
-      "weight": "minor",
-      "scope": ["tingyu_lou"]
-    },
-    {
-      "content": "猎祸人把畸变体的材料卖给翡翠市的法器铺，一只成年的能换三十枚晶石",
-      "weight": "minor"
-    },
-    {
-      "content": "翡翠市商会是翡翠市商户自发的行会，负责议定铺租与市价",
-      "weight": "minor",
-      "scope": ["jadelight_guild"]
-    },
-    {
-      "content": "魔力是一种如空气般无处不在的微观粒子，不遵守能量守恒。魔力沿着魔力导路传输，可以被容器储存、被法术塑形。每个生灵的灵魂都会自发产生魔力，平静时缓慢，剧烈情绪时产出暴涨数十倍",
-      "weight": "major"
-    },
-    {
-      "content": "施法三大定律：魔力守恒：魔力不会被消灭，只会从一种形态转化为另一种；灵魂阻抗：生物对魔力的通过性不同，天赋决定能调动多少魔力；魔力过载：灵魂活动远超肉体承受会导致失忆、情绪失控，重则沦为空壳。法术可以由生物施放，也可以通过铭刻符文、法阵或机械装置释放",
-      "weight": "major"
-    },
-    {
-      "content": "欲望之都是两百年前由“市长”建造的巨型都市，悬浮于地下魔晶矿坑之上，从坑壁向内悬挑成倒锥体。欲望之都的防护罩“慈母帷幔”是直径十公里的乳白色能量膜，使城市在祸的感知中隐形，还能把攻击性魔力转化为能源",
-      "weight": "major"
-    },
-    {
-      "content": "欲望之都有七个环区，自上而下依次是天穹台、白银廊、翡翠市、铜锈区、黑潮带、渊薮和核心井。天穹台是最高的环区：市长官邸与城市核心魔力处理器所在，平民终生不得踏入;白银廊是第二环区：行政机构、高等魔法学院与大企业总部所在地;翡翠市是第三环区：中产阶级商业区，有全城最大的公开魔法制品交易市场;铜锈区是第四环区：工厂与冶炼厂林立的平民居住区，污染最重;黑潮带是第五环区：黑帮地盘，藏着非法格斗场与毒品作坊;渊薮是最底层的贫民窟，与魔晶矿坑接壤，居民多为魔力过载患者;核心井不对外开放：直达地底魔晶矿脉的巨型竖井，终极防御武器所在",
-      "weight": "major"
-    },
-    {
-      "content": "城内遍布汲取器——路灯、广告牌、地铁扶手、街头的金属柱都是——持续抽取公民灵魂逸散的魔力",
-      "weight": "major"
-    },
-    {
-      "content": "情绪税：公民按自身实力每月上交魔力份额，可由收集网络被动代缴，也可用魔力产品或晶石主动缴纳。情绪指数EI实时显示各社区的魔力产出效率，跌破警戒线就会优先切断供暖、净水与照明。长期欠缴情绪税的人会被强制送往渊薮底层的矿坑“补产”，许多人活不过半年，出来的人多半成了情绪空壳。市民缴清情绪税后可以保留部分魔力，用于个人修炼或交易",
-      "weight": "major"
-    },
-    {
-      "content": "上个月黑潮带地下格斗场死了一个无名拳手，尸检结论是魔力过载",
-      "weight": "major"
-    },
-    {
-      "content": "两百年前一颗魔力流星在平流层爆裂，结晶粉尘弥漫大气形成魔力幕帘，世界从此沉入永恒的暗紫暮光。流星携带的外域意识与地球生物的灵魂碎片融合，催生出灵魂与肉体被扭曲的生物祸。祸的最低级是畸变体：肉体异化的野兽，群居，靠数量吞噬一切。祸的中级是魔化体：能够操控魔力施法的生物。祸的高级是灾厄相：拥有智慧的现象级存在，每一只本身就是一场天灾。",
-      "weight": "major"
-    },
-    {
-      "content": "夜巡队是铜锈区街坊凑起来的巡夜队，夜里分两班从作坊街巡到渊薮交界；没有工钱，只有各家轮流出的一壶热茶",
-      "weight": "minor",
-      "scope": ["night_watch", "fangshi"]
-    },
-    {
-      "content": "百草堂是铜锈区的义诊所，专接魔力过载的病人：安神汤、镇魂符、失忆后的看护什么都做；诊金随缘，富商的捐助和渊薮的赊账各占一半",
-      "weight": "minor",
-      "scope": ["baicaotang", "fangshi"]
-    },
-    {
-      "content": "半盏居茶馆的掌柜是沈墨言，年过五旬，做了三十年茶叶生意，同时担任翡翠市商会的理事",
-      "weight": "minor",
-      "scope": ["teahouse", "shen_moyan"]
-    },
-    {
-      "content": "沈墨言话少，说话简短、爱用茶作比喻，不催促不追问客人；听来的消息他会明说是听人讲的",
-      "weight": "minor",
-      "scope": ["teahouse", "shen_moyan"]
-    },
-    {
-      "content": "马魁是夜巡队的队长，四十多岁，退伍的城防辅兵，左脸有一道畸变体抓的旧疤",
-      "weight": "minor",
-      "scope": ["fangshi", "ma_kui", "night_watch"]
-    },
-    {
-      "content": "马魁寡言警觉，说话是短句口令式，报消息先说来源再说事；最恨黑潮带的东西往铜锈区渗",
-      "weight": "minor",
-      "scope": ["fangshi", "ma_kui", "night_watch"]
-    },
-    {
-      "content": "铁拴柱是铜锈区冶炼厂的老炉工，五十出头，也是夜巡队队员",
-      "weight": "minor",
-      "scope": ["fangshi", "tie_shuanzhu", "night_watch"]
-    },
-    {
-      "content": "铁拴柱憨直、嗓门大，心事全写在脸上；直来直去，爱用厂里的活计打比方，一到月底就唉声叹气",
-      "weight": "minor",
-      "scope": ["fangshi", "tie_shuanzhu", "night_watch"]
-    },
-    {
-      "content": "齐一格是铜锈区的符文机械匠，修汲取器也修民用机械，年轻时在白银廊的工坊当过学徒",
-      "weight": "minor",
-      "scope": ["fangshi", "qi_yige"]
-    },
-    {
-      "content": "齐一格是个话痨，一说起机械结构就停不下来，见到精巧机械就走不动路；提起白银廊总是酸溜溜的",
-      "weight": "minor",
-      "scope": ["fangshi", "qi_yige"]
-    },
-    {
-      "content": "白芷若是百草堂的医师，三十来岁，是铜锈区唯一的义诊大夫，见过全城最多的魔力过载病人",
-      "weight": "minor",
-      "scope": ["fangshi", "bai_zhiruo", "baicaotang"]
-    },
-    {
-      "content": "白芷若温和耐心，问诊时轻声细语，语速慢，爱用医嘱式的短句叮嘱人；谈病情直白，谈死亡含蓄",
-      "weight": "minor",
-      "scope": ["fangshi", "bai_zhiruo", "baicaotang"]
-    }
+    { "content": "魔力是一种如空气般无处不在的微观粒子，不遵守能量守恒。魔力沿着魔力导路传输，可以被容器储存、被法术塑形。每个生灵的灵魂都会自发产生魔力，平静时缓慢，剧烈情绪时产出暴涨数十倍", "weight": "major" },
+    { "content": "施法三大定律：魔力守恒：魔力不会被消灭，只会从一种形态转化为另一种；灵魂阻抗：生物对魔力的通过性不同，天赋决定能调动多少魔力；魔力过载：灵魂活动远超肉体承受会导致失忆、情绪失控，重则沦为空壳。法术可以由生物施放，也可以通过铭刻符文、法阵或机械装置释放", "weight": "major" },
+    { "content": "两百年前一颗魔力流星在平流层爆裂，结晶粉尘弥漫大气形成魔力幕帘，世界从此沉入永恒的暗紫暮光。流星携带的外域意识与地球生物的灵魂碎片融合，催生出灵魂与肉体被扭曲的生物祸。祸的最低级是畸变体：肉体异化的野兽，群居，靠数量吞噬一切。祸的中级是魔化体：能够操控魔力施法的生物。祸的高级是灾厄相：拥有智慧的现象级存在，每一只本身就是一场天灾。", "weight": "major" },
+    { "content": "欲望之都是两百年前由“市长”建造的巨型都市，悬浮于地下魔晶矿坑之上，从坑壁向内悬挑成倒锥体。欲望之都的防护罩“慈母帷幔”是直径十公里的乳白色能量膜，使城市在祸的感知中隐形，还能把攻击性魔力转化为能源", "weight": "major" },
+    { "content": "欲望之都有七个环区，自上而下依次是天穹台、白银廊、翡翠市、铜锈区、黑潮带、渊薮和核心井。天穹台是最高的环区：市长官邸与城市核心魔力处理器所在，平民终生不得踏入;白银廊是第二环区：行政机构、高等魔法学院与大企业总部所在地;翡翠市是第三环区：中产阶级商业区，有全城最大的公开魔法制品交易市场;铜锈区是第四环区：工厂与冶炼厂林立的平民居住区，污染最重;黑潮带是第五环区：黑帮地盘，藏着非法格斗场与毒品作坊;渊薮是最底层的贫民窟，与魔晶矿坑接壤，居民多为魔力过载患者;核心井不对外开放：直达地底魔晶矿脉的巨型竖井，终极防御武器所在", "weight": "major" },
+    { "content": "城内遍布汲取器——路灯、广告牌、地铁扶手、街头的金属柱都是——持续抽取公民灵魂逸散的魔力", "weight": "major" },
+    { "content": "情绪税：公民按自身实力每月上交魔力份额，可由收集网络被动代缴，也可用魔力产品或晶石主动缴纳。情绪指数EI实时显示各社区的魔力产出效率，跌破警戒线就会优先切断供暖、净水与照明。长期欠缴情绪税的人会被强制送往渊薮底层的矿坑“补产”，许多人活不过半年，出来的人多半成了情绪空壳。市民缴清情绪税后可以保留部分魔力，用于个人修炼或交易", "weight": "major" },
+    { "content": "晶石是把魔力封入晶格制成的硬通货，一枚标准晶石约等于一个普通公民一周的被动产出；情绪税可用晶石抵缴，黑市的买卖也只认晶石", "weight": "major" },
+    { "content": "上个月黑潮带地下格斗场死了一个无名拳手，尸检结论是魔力过载", "weight": "major" },
+    { "content": "天穹台的守卫是机器人，只认铭牌不认人", "weight": "minor" },
+    { "content": "猎祸人把畸变体的材料卖给翡翠市的法器铺，一只成年的能换三十枚晶石", "weight": "minor" },
+    { "content": "渊薮近来有人在收购魔力过载者的记忆残片，出价高得反常，买家不明", "weight": "minor" },
+    { "content": "欲望之都市政府是城市的管理层，由市长直辖，最关心的就是情绪税的缴纳", "weight": "minor", "scope": ["city_gov"] },
+    { "content": "伊甸公司是白银廊的大企业，研究“灵魂增强”技术", "weight": "minor", "scope": ["eden_soul"] },
+    { "content": "伊甸公司的招牌药“灵感剂”能人为压低灵魂阻抗让普通人高强度施法，副作用是加速魔力过载", "weight": "minor", "scope": ["eden_soul"] },
+    { "content": "回声壁是城里最大的情报贩子组织，据点藏在黑潮带雨棚街深处；消息明码标价，从不问客人买消息去做什么", "weight": "minor", "scope": ["echo_wall"] },
+    { "content": "翡翠市商会是翡翠市商户自发的行会，议定铺租与市价，每月月底在半盏居碰头对账", "weight": "minor", "scope": ["jadelight_guild", "teahouse"] },
+    { "content": "夜巡队是铜锈区街坊凑起来的巡夜队，夜里分两班从作坊街巡到渊薮交界；没有工钱，只有各家轮流出的一壶热茶", "weight": "minor", "scope": ["night_watch", "fangshi"] },
+    { "content": "百草堂是铜锈区的义诊所，专接魔力过载的病人：安神汤、镇魂符、失忆后的看护什么都做；诊金随缘，富商的捐助和渊薮的赊账各占一半", "weight": "minor", "scope": ["baicaotang", "fangshi"] },
+    { "content": "半盏居的掌柜是温叙，年过五旬，做了三十年茶叶生意，同时担任翡翠市商会的理事", "weight": "minor", "scope": ["teahouse", "wen_xu", "jadelight_guild"] },
+    { "content": "温叙话少，说话简短、爱用茶作比喻，不催促不追问客人；听来的消息他会明说是听人讲的", "weight": "minor", "scope": ["teahouse", "wen_xu"] },
+    { "content": "贺川是翡翠市商会的会长，万货栈的东家，翡翠市半数铺面的租约要过他的手", "weight": "minor", "scope": ["teahouse", "he_chuan", "jadelight_guild"] },
+    { "content": "贺川爱笑，算盘打得比说话快，谈价钱之前先把你的茶续满；认账不认人，认契不认情", "weight": "minor", "scope": ["teahouse", "he_chuan"] },
+    { "content": "云若汐是云记晶石行老板的独女，十七岁，在铺子里帮工，备考高等魔法学院两年了", "weight": "minor", "scope": ["jingshi_hang", "yun_ruoxi"] },
+    { "content": "云若汐要强，张口闭口要考进白银廊；报晶石价目一分不差，聊起学院的书就收不住", "weight": "minor", "scope": ["jingshi_hang", "yun_ruoxi"] },
+    { "content": "钱进是市政府的税务外勤，背着抄表板跑翡翠市和铜锈区催缴情绪税，常在征收所对账", "weight": "minor", "scope": ["shuishuo", "qian_jin", "city_gov"] },
+    { "content": "钱进见人下菜碟：对白银廊点头哈腰，对铜锈区板着脸，张口闭口“规定”“份额”“下个月”", "weight": "minor", "scope": ["shuishuo", "qian_jin"] },
+    { "content": "秦峙是夜巡队队长，四十多岁，退伍的城防辅兵，左脸有一道畸变体抓的旧疤", "weight": "minor", "scope": ["fangshi", "qin_zhi", "night_watch"] },
+    { "content": "秦峙寡言警觉，说话是短句口令式，报消息先说来源再说事；最恨黑潮带的东西往铜锈区渗", "weight": "minor", "scope": ["fangshi", "qin_zhi", "night_watch"] },
+    { "content": "关大河是铜锈区冶炼厂的老炉工，五十出头，做了半辈子粗活；夜巡队队员，家里有个上学的闺女", "weight": "minor", "scope": ["fangshi", "guan_dahe", "night_watch"] },
+    { "content": "关大河憨直嗓门大，心事全写在脸上；爱用厂里的活计打比方，一到月底就唉声叹气", "weight": "minor", "scope": ["fangshi", "guan_dahe"] },
+    { "content": "唐枢是铜锈区的符文机械匠，修汲取器也修民用机械，年轻时在白银廊的工坊当过学徒", "weight": "minor", "scope": ["fangshi", "tang_shu"] },
+    { "content": "唐枢是个话痨，说起机械结构就停不下来；提起白银廊总是酸溜溜的", "weight": "minor", "scope": ["fangshi", "tang_shu"] },
+    { "content": "白苏是百草堂的医师，三十来岁，铜锈区唯一的义诊大夫，见过全城最多的魔力过载病人", "weight": "minor", "scope": ["baicaotang", "bai_su", "fangshi"] },
+    { "content": "白苏温和耐心，语速慢，爱用医嘱式的短句叮嘱人；谈病情直白，谈死亡含蓄", "weight": "minor", "scope": ["baicaotang", "bai_su"] },
+    { "content": "简凝是市长秘书，市府里唯一能定期见到市长的人，替市长念文告、出席白银廊的场合", "weight": "minor", "scope": ["baiyin_guangchang", "jian_ning", "city_gov"] },
+    { "content": "简凝滴水不漏，笑意从不达眼底；拒绝人的话最温柔，从不透露市长的意思，只转述", "weight": "minor", "scope": ["baiyin_guangchang", "jian_ning"] },
+    { "content": "苏挽星是市政府的帷幔维护官，常驻白银廊维护枢纽，定期巡检慈母帷幔的锚点，是少数合法踏足天穹台边界的人", "weight": "minor", "scope": ["baiyin_guangchang", "su_wanxing", "city_gov"] },
+    { "content": "苏挽星公事公办一丝不苟，忠的是“帷幔不破”这件事而非任何官员；谈技术侃侃而谈，谈人事滴水不漏", "weight": "minor", "scope": ["baiyin_guangchang", "su_wanxing"] },
+    { "content": "严知衡是市政府科技部部长，白银廊技术官僚的顶端，主抓魔力产出效率与城市核心处理器", "weight": "minor", "scope": ["yidian_dasha", "yan_zhiheng", "city_gov"] },
+    { "content": "严知衡冷静傲慢，视人身为可优化的系统，从不说“大概”，把情绪称为“产出波动”", "weight": "minor", "scope": ["yidian_dasha", "yan_zhiheng"] },
+    { "content": "贺文珊是伊甸公司的销售主管，白银廊社交场上的红人，灵感剂的渠道一半过她的手", "weight": "minor", "scope": ["yidian_dasha", "he_wenshan", "eden_soul"] },
+    { "content": "贺文珊甜，热络，三句话不离“改善生活”；送的试用量永远比说出口的多一片", "weight": "minor", "scope": ["yidian_dasha", "he_wenshan"] },
+    { "content": "祁隐是回声壁的主人，年龄成谜，在雨棚街最深处的门后做买卖；城里大部分秘密都经他的手转卖", "weight": "minor", "scope": ["yupeng_jie", "qi_yin", "echo_wall"] },
+    { "content": "祁隐礼貌而疏离，报价干脆从不还价，每句话都留三分余地；从不问客人买消息去做什么", "weight": "minor", "scope": ["yupeng_jie", "qi_yin"] },
+    { "content": "阿七是回声壁的眼线，二十出头，常驻黑潮带，扮过拳手的递水小厮、赌档的荷官和毒品作坊的伙计", "weight": "minor", "scope": ["yupeng_jie", "a_qi", "echo_wall"] },
+    { "content": "阿七机灵嘴甜，翻脸比翻书快；报信爱加戏，重点藏在尾巴上", "weight": "minor", "scope": ["yupeng_jie", "a_qi"] },
+    { "content": "崔胜是铁笼格斗场的登记掮客，前拳手，膝盖废了，管签生死状和发赏钱", "weight": "minor", "scope": ["longdou_chang", "cui_sheng"] },
+    { "content": "崔胜手里总转着一枚铜哨，说话留半句；聊到拳手的事，他的规矩是“死的说的比活的多”", "weight": "minor", "scope": ["longdou_chang", "cui_sheng"] },
+    { "content": "雷震是渊薮出了名的猎祸人，常年在矿坑边缘和旧管道里猎畸变体，一身旧板甲全是抓痕", "weight": "minor", "scope": ["wuchao_xiang", "lei_zhen"] },
+    { "content": "雷震嗓门大爱吹牛，讲到猎场往事收不住；迷信自己的直觉，直觉至今没错过", "weight": "minor", "scope": ["wuchao_xiang", "lei_zhen"] },
+    { "content": "柳婆婆是渊薮雾巢巷的盲眼老妪，在通往矿坑的坡道上摆了几十年茶摊，给人看水碗卦，收费随缘", "weight": "minor", "scope": ["wuchao_xiang", "liu_popo"] },
+    { "content": "柳婆婆说话半真半假，卦辞像谜语；对渊薮的生死看得淡，对欠她茶钱的记得牢", "weight": "minor", "scope": ["wuchao_xiang", "liu_popo"] }
   ]
 }

@@ -55,6 +55,7 @@ var status: int = FactStatus.ACTIVE
 var superseded_by := 0          # 取代者的 id；未被取代 = 0
 var scope: Array[String] = []   # 作用域实体 id 列表；空 = 全局
 var created_at := ""
+var embedding := PackedFloat32Array()  # 语义层向量（api 档；空 = 未嵌入，不参与向量召回）
 
 
 ## 这条事实是否挂在某实体名下（检索判断）。
@@ -63,7 +64,7 @@ func has_entity(entity_id: String) -> bool:
 
 
 func to_dict() -> Dictionary:
-	return {
+	var out := {
 		"id": id,
 		"content": content,
 		"source": source_to_key(source),
@@ -73,6 +74,9 @@ func to_dict() -> Dictionary:
 		"scope": scope,
 		"created_at": created_at,
 	}
+	if not embedding.is_empty():
+		out["embedding_b64"] = Marshalls.raw_to_base64(embedding.to_byte_array())
+	return out
 
 
 static func from_dict(data: Dictionary) -> CanonFact:
@@ -95,4 +99,7 @@ static func from_dict(data: Dictionary) -> CanonFact:
 				if not entity_id.is_empty():
 					f.scope.append(entity_id)
 	f.created_at = str(data.get("created_at", ""))
+	var b64 := str(data.get("embedding_b64", ""))
+	if not b64.is_empty():
+		f.embedding = Marshalls.base64_to_raw(b64).to_float32_array()
 	return f

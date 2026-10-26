@@ -1,17 +1,16 @@
 class_name DMPackBuilder
 extends RefCounted
-## 旁白材料包组装（DM 层，处理器）：冻结现场——按 world_model_design §6.2 配方
-## 收集本回合材料：当前地点作用域正典 + 全局提要 + 被提及实体作用域 + 本次探索流水。
-## 检索全部确定性（CanonStore 作用域命中 + EntityRegistry 精确名匹配），
-## 零概率调用。组装完成后冻结不变。
-
-## 提及实体扫描的字符窗口（行动原文优先占用，余量给流水尾部——近期行先进窗口）
-const SCAN_TEXT_LIMIT := 400
+## 旁白材料包组装（DM 层，处理器）：冻结现场——按融合检索流水线收集本回合事实：
+##   ① 话题栈喂料：扫描行动原文命中的实体入栈/续命（代词与称谓经此保持可激活）
+##   ② FactRetriever.collect：骨架层信号（地点/全局/在场+交谈/话题栈）+ 语义层（BM25）
+##      → 合并去重 → 统一评分排序 → 单一预算截断
+## 组装完成后冻结不变。旧三通道（地点40/全局40/提及40）已由单一预算取代。
 
 
 ## 组装旁白材料包。action_text：玩家行动原文；turn：回合号；worldview/mainline：作者文本；
 ## location_id/location_name：当前位置（LocationStore/EntityRegistry 给出）；
-## history：控制器近期流水行。
+## history：控制器近期流水行（进入查询文本）；present_ids：在场 NPC id；
+## partner_id：当前交谈对象（可为空）；topics：话题栈（可空——测试/无栈场景）。返回冻结的包。
 static func build(
 		action_text: String,
 		turn: int,
@@ -20,6 +19,10 @@ static func build(
 		location_id: String,
 		location_name: String,
 		history: Array[String],
+		present_ids: Array[String] = [],
+		partner_id: String = "",
+		topics: TopicStack = null,
+		query_vector: PackedFloat32Array = PackedFloat32Array(),
 ) -> DMPack:
 	var pack := DMPack.new()
 	pack.turn_number = turn
@@ -29,27 +32,25 @@ static func build(
 	pack.location_id = location_id
 	pack.location_name = location_name
 
-	# ① 当前地点作用域：major 全量，minor 超预算保最近
-	if not location_id.is_empty():
-		pack.location_facts = CanonStore.facts_for_location(location_id)
-	# ② 全局提要（跨地理边界的事实）：major 全量，minor 超预算保最近
-	pack.global_digest = CanonStore.global_digest()
-	# ③ 本回合被提及实体的作用域事实（行动原文 + 流水扫描；确定性精确匹配）
-	# 扫描窗口 400 字符：行动原文优先，余量给流水的尾部（近期行优先进窗口）
-	var history_text := " ".join(history)
-	var scan_budget := maxi(0, SCAN_TEXT_LIMIT - action_text.length())
-	if history_text.length() > scan_budget:
-		history_text = history_text.substr(history_text.length() - scan_budget)
-	var scan_text := action_text + " " + history_text
-	pack.mentioned_entities = EntityRegistry.scan_mentioned(scan_text)
+	# ① 话题栈喂料：行动原文（完整输入）命中即入栈/续命——历史行的提及已在过去回合入栈
+	var mentioned := EntityRegistry.scan_mentioned(action_text)
 	var mentioned_ids: Array = []
-	for m in pack.mentioned_entities:
+	for m in mentioned:
 		mentioned_ids.append(str((m as Dictionary).get("id", "")))
-	if not mentioned_ids.is_empty():
-		pack.entity_facts = CanonStore.facts_for_entities(mentioned_ids)
+	if topics != null:
+		topics.touch(mentioned_ids)
 
-	# ⑤ 实体命名闭集（2026-10 移除：组装后从未进入任何提示词——防编造名单实际未生效；
-	# DM 可点名的确定名单由"在场人物"行承担，恢复时重建 _naming_closure 并渲染进 dm_user_prompt）
+	# ② 融合检索：查询文本 = 行动原文 + 流水窗口（话题与相关度都按"刚发生的一切"衡量）
+	var topic_ids: Array[String] = []
+	if topics != null:
+		topic_ids = topics.alive_ids()
+	var query_text := action_text + " " + " ".join(history)
+	var results := FactRetriever.collect(query_text, location_id, present_ids, partner_id,
+		topic_ids, query_vector)
+	for r in results:
+		var fact: CanonFact = r["fact"]
+		pack.facts.append(fact)
+		pack.fact_tags[fact.id] = r["tags"]
 
 	pack.history_lines = history.duplicate()
 	pack.assembled_at = Time.get_time_string_from_system()

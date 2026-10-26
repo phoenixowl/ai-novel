@@ -40,8 +40,8 @@ func _run() -> void:
 	WorldStream.reset_for_test()
 	TestUtil.clear_gen_characters()
 	for f in ["world/canon.json", "world/entities.json", "world/locations.json",
-			"characters/ma_kui.json", "characters/bai_zhiruo.json",
-			"affinity/ma_kui.json", "affinity/bai_zhiruo.json"]:
+			"characters/qin_zhi.json", "characters/guan_dahe.json",
+			"affinity/qin_zhi.json", "affinity/guan_dahe.json"]:
 		DirAccess.remove_absolute(OS.get_user_data_dir() + "/" + f)
 
 	var dm := DMController.new()
@@ -69,23 +69,23 @@ func _run() -> void:
 	failures = TestUtil.check(seen["packs"] == 1 and (seen["prompts"] as Array).size() == 1,
 		"行动路由：材料包与提示词各广播 1 次", failures)
 	var usr1: String = (seen["prompts"] as Array)[0][1]
-	failures = TestUtil.check(usr1.contains("[ma_kui]") and usr1.contains("白芷若"),
-		"DM 材料层含在场人物闭集（fangshi 四人）", failures)
+	failures = TestUtil.check(usr1.contains("[qin_zhi]") and usr1.contains("秦峙"),
+		"DM 材料层含在场人物闭集（fangshi 三人）", failures)
 	failures = TestUtil.check(usr1.contains("我从货架上取一份报纸"), "DM 材料层原样携带输入", failures)
 	# 支柱A：行动回合申报的持久事实以临时状态入典（mock 样本申报一条）
 	failures = TestUtil.check(CanonStore.all_entries().size() == 1
 		and CanonStore.all_entries()[0].status == CanonFact.FactStatus.PROVISIONAL,
 		"行动申报：临时事实入典（PROVISIONAL）", failures)
 
-	# —— 场景二：说话路由——自动与首位在场者（马魁）开始对话 ——
+	# —— 场景二：说话路由——自动与首位在场者（秦峙）开始对话 ——
 	ne.cmd_submit_input.emit("请问这里最近安全吗？")
 	await _wait_until_func(func() -> bool:
 		return _count(seen["world"], "npc_utterance") >= 1, 10.0)
 	failures = TestUtil.check((seen["starts"] as Array).size() == 1
-		and str((seen["starts"] as Array)[0]) == "ma_kui", "说话路由：自动与马魁开始对话", failures)
+		and str((seen["starts"] as Array)[0]) == "qin_zhi", "说话路由：自动与秦峙开始对话", failures)
 	var dm2: Dictionary = seen["dms"][1]
 	failures = TestUtil.check(str(dm2.get("route", "")) == "speech"
-		and str(dm2.get("npc", "")) == "ma_kui", "说话路由：DM 判 speech → ma_kui", failures)
+		and str(dm2.get("npc", "")) == "qin_zhi", "说话路由：DM 判 speech → qin_zhi", failures)
 	failures = TestUtil.check(_kinds(seen["world"]).has("player_utterance")
 		and _kinds(seen["world"]).has("npc_utterance"), "对话回声混排进世界流", failures)
 
@@ -96,7 +96,7 @@ func _run() -> void:
 	failures = TestUtil.check(dm.turn_number == 2, "混合路由：世界回合 2 落地", failures)
 	var dm3: Dictionary = seen["dms"][2]
 	failures = TestUtil.check(str(dm3.get("route", "")) == "mixed"
-		and str(dm3.get("npc", "")) == "ma_kui"
+		and str(dm3.get("npc", "")) == "qin_zhi"
 		and not str(dm3.get("narration", "")).is_empty(), "混合路由：DM 拆分行动+话语（送当前对象）", failures)
 	failures = TestUtil.check(_count(seen["world"], "narration_turn") == 2,
 		"混合路由：行动后果已叙述", failures)
@@ -104,22 +104,22 @@ func _run() -> void:
 	failures = TestUtil.check(CanonStore.all_entries().size() == 1,
 		"行动申报：重复申报精确去重（仍 1 条）", failures)
 
-	# —— 场景四：点名切换对话——自动结算马魁，转向白芷若 ——
-	ne.cmd_submit_input.emit("白芷若，麻烦你给我瞧瞧这条胳膊")
+	# —— 场景四：点名切换对话——自动结算秦峙，转向关大河 ——
+	ne.cmd_submit_input.emit("关大河，麻烦你搭把手扶一下")
 	await _wait_until_func(func() -> bool:
 		return (seen["ends"] as Array).size() == 1 and (seen["starts"] as Array).size() == 2, 10.0)
 	await _wait_until_func(func() -> bool:
 		return _count(seen["world"], "npc_utterance") >= 3, 10.0)
 	failures = TestUtil.check((seen["ends"] as Array).size() >= 1
 		and str((seen["ends"] as Array)[0]) == "manual_settle", "切换对话：旧对话自动结算", failures)
-	failures = TestUtil.check(str((seen["starts"] as Array)[1]) == "bai_zhiruo",
-		"切换对话：新对话与白芷若开始", failures)
+	failures = TestUtil.check(str((seen["starts"] as Array)[1]) == "guan_dahe",
+		"切换对话：新对话与关大河开始", failures)
 	for _i in range(30):
-		if FileAccess.file_exists(OS.get_user_data_dir() + "/characters/ma_kui.json"):
+		if FileAccess.file_exists(OS.get_user_data_dir() + "/characters/qin_zhi.json"):
 			break
 		await create_timer(0.3).timeout
-	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/characters/ma_kui.json"),
-		"切换对话：马魁快照落盘（记忆与学习结算）", failures)
+	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/characters/qin_zhi.json"),
+		"切换对话：秦峙快照落盘（记忆与学习结算）", failures)
 
 	# —— 场景五：结束交谈——回到行动域 ——
 	de.cmd_settle_now.emit()
@@ -158,8 +158,8 @@ func _run() -> void:
 
 	# —— 清理测试产生的运行时档案 ——
 	for f in ["world/canon.json", "world/entities.json", "world/locations.json",
-			"characters/ma_kui.json", "characters/bai_zhiruo.json",
-			"affinity/ma_kui.json", "affinity/bai_zhiruo.json"]:
+			"characters/qin_zhi.json", "characters/guan_dahe.json",
+			"affinity/qin_zhi.json", "affinity/guan_dahe.json"]:
 		DirAccess.remove_absolute(OS.get_user_data_dir() + "/" + f)
 	TestUtil.clear_gen_characters()
 	CanonStore.reset_for_test()

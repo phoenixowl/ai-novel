@@ -46,14 +46,10 @@ func dm_user_prompt(pack: DMPack, present_rows: Array[String], partner_line: Str
 		p.append("■ 主线基调（世界张力的方向感；不是任务清单，不是进度条）")
 		p.append(pack.mainline)
 	p.append("")
-	p.append("■ 世界事实（正典——你所叙述的一切不得与之矛盾；[编号] 是每条事实的身份证）")
-	p.append("· 当前地点（%s）名下：" % pack.location_name)
-	_append_facts(p, pack.location_facts)
-	p.append("· 全局重大事实提要：")
-	_append_facts(p, pack.global_digest)
-	if not pack.entity_facts.is_empty():
-		p.append("· 本轮提及到的对象名下：")
-		_append_facts(p, pack.entity_facts)
+	p.append("■ 世界事实（正典——你所叙述的一切不得与之矛盾；[编号] 是每条事实的身份证；")
+	p.append("  条目末的标记说明它为何在此：此地=发生在当前地点，全局=跨地点生效，")
+	p.append("  在场·名=关于眼前这个人，话题·名=你们刚聊到的对象，相关=与你所说的内容相关）")
+	_append_facts(p, pack.facts, pack.fact_tags)
 	p.append("")
 	p.append("■ 在场人物（说话目标只能是他们；格式 [id] 规范名——身份）")
 	if present_rows.is_empty():
@@ -166,14 +162,18 @@ func _build_dm_system(knobs: Dictionary) -> String:
 	return "\n".join(p)
 
 
-## 一段正典事实的逐行渲染（编号供引用）。
-static func _append_facts(p: Array[String], facts: Array[CanonFact]) -> void:
+## 融合事实列表的逐行渲染（编号供引用；来源标记说明每条为何被选中）。
+static func _append_facts(p: Array[String], facts: Array[CanonFact], fact_tags: Dictionary) -> void:
 	if facts.is_empty():
-		p.append("  （无）")
+		p.append("  （暂无）")
 		return
 	for f in facts:
-		p.append("  · [%d]（%s · %s）%s" % [
-			f.id, CanonFact.source_to_key(f.source), CanonFact.weight_to_key(f.weight), f.content])
+		var tags: PackedStringArray = fact_tags.get(f.id, PackedStringArray())
+		var tag_text := ""
+		if not tags.is_empty():
+			tag_text = " · " + " · ".join(tags)
+		p.append("  · [%d]（%s%s）%s" % [
+			f.id, CanonFact.weight_to_key(f.weight), tag_text, f.content])
 
 
 ## 进场描述提示词（world_model_design §3.3：首次进入某地点时的一次性生成）。

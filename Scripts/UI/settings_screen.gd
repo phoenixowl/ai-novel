@@ -18,6 +18,12 @@ const COLOR_OK := Color("#90be6d")       # 测试成功/保存成功的颜色
 @onready var api_test_label: Label = %ApiTestLabel
 @onready var max_tokens_spin: SpinBox = %MaxTokensSpin
 @onready var knobs_box: VBoxContainer = %KnobsBox
+# —— 检索配置区（事实召回语义层档位） ——
+@onready var embedding_provider_option: OptionButton = %EmbeddingProviderOption
+@onready var embedding_base_url_edit: LineEdit = %EmbeddingBaseUrlEdit
+@onready var embedding_model_edit: LineEdit = %EmbeddingModelEdit
+@onready var embedding_key_edit: LineEdit = %EmbeddingKeyEdit
+@onready var embedding_status: Label = %EmbeddingStatus
 
 # —— 事件集线器 ——
 var _llm: LLMEvents        # LLM 域（API 配置与连接测试）
@@ -29,6 +35,7 @@ var _api_key := ""                        # 已保存的 DeepSeek Key（表单�
 var _model := LLMConfig.DEFAULT_MODEL     # 已保存的模型名
 var _max_tokens := LLMConfig.DEFAULT_MAX_TOKENS  # 已保存的输出上限
 var _knob_options: Array[Dictionary] = []  # 动态创建的旋钮 OptionButton（含 key 与选项表）
+var _embed_cfg := EmbeddingConfig.new()    # 检索配置（进屏时读盘回填；保存经 DM 总线命令下发）
 
 
 
@@ -36,6 +43,8 @@ var _knob_options: Array[Dictionary] = []  # 动态创建的旋钮 OptionButton�
 func _ready() -> void:
 	for model_name in LLMConfig.AVAILABLE_MODELS:
 		api_model_option.add_item(model_name)
+	for choice in EmbeddingConfig.PROVIDER_CHOICES:
+		embedding_provider_option.add_item(str(choice["label"]))
 	_build_knobs()
 	_llm = EventBus.resolve().hub(LLMEvents) as LLMEvents
 	_dm = EventBus.resolve().hub(DMEvents) as DMEvents
@@ -108,6 +117,15 @@ func _on_navigate_requested(screen: String) -> void:
 	max_tokens_spin.set_value_no_signal(_max_tokens)
 	api_test_label.text = " "
 	api_test_label.add_theme_color_override("font_color", COLOR_SYSTEM)
+	_embed_cfg.load_from_disk()
+	for i in EmbeddingConfig.PROVIDER_CHOICES.size():
+		if str(EmbeddingConfig.PROVIDER_CHOICES[i]["key"]) == _embed_cfg.provider:
+			embedding_provider_option.selected = i
+			break
+	embedding_base_url_edit.text = _embed_cfg.base_url
+	embedding_model_edit.text = _embed_cfg.model
+	embedding_key_edit.text = _embed_cfg.api_key
+	embedding_status.text = " "
 	_dm.cmd_get_knobs.emit()
 
 
@@ -131,6 +149,19 @@ func _on_settings_save_pressed() -> void:
 func _on_api_test_pressed() -> void:
 	api_test_label.text = "测试中…"
 	_llm.cmd_test_connection.emit(api_key_edit.text, _selected_model())
+
+
+## 「保存检索设置并应用」：表单值经 DM 总线命令下发（引擎侧持久化 + 换模型清向量）。
+func _on_embedding_save_pressed() -> void:
+	var provider := str(EmbeddingConfig.PROVIDER_CHOICES[
+		clampi(embedding_provider_option.selected, 0, EmbeddingConfig.PROVIDER_CHOICES.size() - 1)]["key"])
+	_dm.cmd_set_embedding_config.emit(provider, embedding_key_edit.text.strip_edges(),
+		embedding_model_edit.text.strip_edges(), embedding_base_url_edit.text.strip_edges())
+	embedding_status.add_theme_color_override("font_color", COLOR_OK)
+	if provider == EmbeddingConfig.PROVIDER_API:
+		embedding_status.text = "已保存并应用（向量档；请求失败时自动回落内置 BM25）。"
+	else:
+		embedding_status.text = "已保存并应用。"
 
 
 ## 当前选中的模型名（下拉无效时回落默认模型）。

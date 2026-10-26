@@ -18,6 +18,7 @@ signal cmd_get_canon()                          # 请求世界事实快照（调
 signal cmd_get_state()                          # 请求重发状态机快照（UI 晚于控制器就绪时拉取）
 signal cmd_set_knobs(knobs: Dictionary)         # 设置旁白风格旋钮（即时持久化）
 signal cmd_get_knobs()                          # 请求重发旋钮快照（设置屏进屏时）
+signal cmd_set_embedding_config(provider: String, api_key: String, model: String, base_url: String)  # 检索档位配置（即时持久化 + 换模型清向量）
 signal cmd_add_fact(payload: Dictionary)        # 事实库编辑：新增 {content, weight, source, scope_type, scope_id}
 signal cmd_edit_fact(payload: Dictionary)       # 事实库编辑：修改 {id, content, weight}
 signal cmd_delete_fact(fact_id: int)            # 事实库编辑：删除条目

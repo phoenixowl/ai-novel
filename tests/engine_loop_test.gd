@@ -38,10 +38,10 @@ func _run() -> void:
 	var engine := DialogueController.new()
 	root.add_child(engine)  # _ready：加载设定 + 订阅 cmd 命令
 
-	# 清掉可能残留的沈墨言运行时档案（保证断言确定性）
+	# 清掉可能残留的温叙运行时档案（保证断言确定性）
 	TestUtil.clear_gen_characters()
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/shen_moyan.json")
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/shen_moyan.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/wen_xu.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/wen_xu.json")
 
 	# 经总线连接集线器信号（与 UI 同一路径）
 	var ev := bus.hub(DialogueEvents) as DialogueEvents
@@ -55,10 +55,10 @@ func _run() -> void:
 	ev.event_appended.connect(func(e): events_seen.append(e))
 
 	# —— 开始对话（cmd 命令信号） ——
-	ev.cmd_start.emit("shen_moyan", "teahouse")
+	ev.cmd_start.emit("wen_xu", "teahouse")
 	failures = TestUtil.check(engine.state_name() == "等待玩家输入", "cmd 开始对话，进入等待玩家", failures)
-	failures = TestUtil.check(engine.current_person.knowledge.size() == 13, "对话开始：卡片初始知识 13 条入日志", failures)
-	failures = TestUtil.check(engine.current_person.active_knowledge().size() == 12, "其中 12 条 active（1 条已失效）", failures)
+	failures = TestUtil.check(engine.current_person.knowledge.size() == 14, "对话开始：卡片初始知识 14 条入日志", failures)
+	failures = TestUtil.check(engine.current_person.active_knowledge().size() == 13, "其中 13 条 active（1 条已失效）", failures)
 
 	# —— 第一轮：拳手命案（含习得样本） ——
 	var player_turn1 := "黑潮带的格斗场死了个拳手，你听说了吗？"
@@ -71,11 +71,11 @@ func _run() -> void:
 	failures = TestUtil.check(responses_seen.size() == 1, "回应事件发出 1 次", failures)
 	var pack1 := packs_seen[0] as DialoguePack
 	failures = TestUtil.check(pack1.turn_number == 1, "材料包轮次为 1", failures)
-	failures = TestUtil.check(pack1.knowledge_entries.size() == 12, "材料包注入知识日志 12 条", failures)
+	failures = TestUtil.check(pack1.knowledge_entries.size() == 13, "材料包注入知识日志 13 条", failures)
 	# 延后结算验证：对话期间不写知识日志
 	var learned_events := _events_of(events_seen, "knowledge_learned")
 	failures = TestUtil.check(learned_events.is_empty(), "延后结算：对话期间无习得事件", failures)
-	failures = TestUtil.check(engine.current_person.knowledge.size() == 13, "延后结算：对话期间日志不变（13 条）", failures)
+	failures = TestUtil.check(engine.current_person.knowledge.size() == 14, "延后结算：对话期间日志不变（14 条）", failures)
 	var npc_events := _events_of(events_seen, "npc_utterance")
 	failures = TestUtil.check(npc_events.size() == 1, "落地 1 条 NPC 发言事件", failures)
 	failures = TestUtil.check(str((npc_events[0] as Dictionary).get("claim_type", "")) == "确知", "claim_type 落档", failures)
@@ -95,7 +95,7 @@ func _run() -> void:
 	failures = TestUtil.check(_events_of(events_seen, "dialogue_ended").size() == 1, "对话结束事件落档", failures)
 
 	# 结算后验证：信念更新事件（learned 已移至结算时由 LLM 提取）
-	failures = TestUtil.check(engine.current_person.knowledge.size() >= 13, "结算后：知识日志存在", failures)
+	failures = TestUtil.check(engine.current_person.knowledge.size() >= 14, "结算后：知识日志存在", failures)
 	var settled_beliefs := _events_of(events_seen, "belief_updated")
 	failures = TestUtil.check(settled_beliefs.size() == 1, "结算后：信念更新事件落档 1 条", failures)
 	if settled_beliefs.size() == 1:
@@ -109,7 +109,7 @@ func _run() -> void:
 			break
 		await create_timer(0.3).timeout
 	failures = TestUtil.check(engine.current_person.memory_count() >= 1, "结算后记忆已生成", failures)
-	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/characters/shen_moyan.json"), "知识日志已持久化（人物快照）", failures)
+	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/characters/wen_xu.json"), "知识日志已持久化（人物快照）", failures)
 
 	# 结束后不可续聊
 	ev.cmd_submit.emit("等等，我还有话没说完")
@@ -118,7 +118,7 @@ func _run() -> void:
 	failures = TestUtil.check(engine.state_name() == "对话已结束", "结束后状态不变", failures)
 
 	# —— 结算即结束：cmd_settle_now 结算并直接结束对话 ——
-	ev.cmd_start.emit("shen_moyan", "teahouse")
+	ev.cmd_start.emit("wen_xu", "teahouse")
 	failures = TestUtil.check(engine.state_name() == "等待玩家输入", "重新开始对话（结算场景）", failures)
 	var npc_count_before := _events_of(events_seen, "npc_utterance").size()
 	ev.cmd_submit.emit("最近雾顶的茶价怎么样？")
@@ -147,14 +147,14 @@ func _run() -> void:
 	ce.characters_listed.connect(func(items: Array): holder["listed"] = items)
 	ce.character_loaded.connect(func(d: Dictionary): holder["detail"] = d)
 	ce.cmd_get_characters.emit()
-	failures = TestUtil.check((holder["listed"] as Array).size() == 16, "人物总览：玩家 + 15 NPC", failures)
-	ce.cmd_get_character.emit("shen_moyan")
+	failures = TestUtil.check((holder["listed"] as Array).size() == 18, "人物总览：玩家 + 17 NPC", failures)
+	ce.cmd_get_character.emit("wen_xu")
 	var detail := holder["detail"] as Dictionary
 	failures = TestUtil.check(str(detail.get("kind", "")) == "npc", "人物详情返回 NPC", failures)
 	var base_count := (detail.get("knowledge", []) as Array).size()
 	var save_payload := {
-		"id": "shen_moyan", "kind": "npc",
-		"name": "沈掌柜（测试覆盖）", "identity": "茶馆掌柜·测试", "profile": "测试人设",
+		"id": "wen_xu", "kind": "npc",
+		"name": "温掌柜（测试覆盖）", "identity": "茶馆掌柜·测试", "profile": "测试人设",
 		"affinity": 42,
 		"knowledge": (detail.get("knowledge", []) as Array) + [
 			{"seq": 0, "content": "测试新增知识", "speaker": "手动", "trust": "比较相信"},
@@ -162,24 +162,24 @@ func _run() -> void:
 		"memories": detail.get("memories", []),
 	}
 	ce.cmd_save_character.emit(save_payload)
-	ce.cmd_get_character.emit("shen_moyan")
+	ce.cmd_get_character.emit("wen_xu")
 	detail = holder["detail"] as Dictionary
-	failures = TestUtil.check(str(detail.get("name", "")) == "沈掌柜（测试覆盖）", "保存后人设快照生效", failures)
+	failures = TestUtil.check(str(detail.get("name", "")) == "温掌柜（测试覆盖）", "保存后人设快照生效", failures)
 	failures = TestUtil.check(int(detail.get("affinity", 0)) == 42, "保存后好感度生效", failures)
 	failures = TestUtil.check((detail.get("knowledge", []) as Array).size() == base_count + 1, "保存后新增知识条目", failures)
 	failures = TestUtil.check(bool(detail.get("has_snapshot", false)), "保存后存在运行时快照", failures)
-	ce.cmd_reset_character.emit("shen_moyan")
-	ce.cmd_get_character.emit("shen_moyan")
+	ce.cmd_reset_character.emit("wen_xu")
+	ce.cmd_get_character.emit("wen_xu")
 	detail = holder["detail"] as Dictionary
-	failures = TestUtil.check(str(detail.get("name", "")) == "沈墨言", "恢复卡面后人设回落作者卡", failures)
+	failures = TestUtil.check(str(detail.get("name", "")) == "温叙", "恢复卡面后人设回落作者卡", failures)
 	failures = TestUtil.check(int(detail.get("affinity", 0)) == 42, "恢复卡面保留好感度", failures)
 	failures = TestUtil.check(not bool(detail.get("has_snapshot", true)), "恢复卡面后快照消失", failures)
 
 	# 清理测试产生的运行时档案
 	TestUtil.clear_gen_characters()
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/shen_moyan.json")
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/shen_moyan.json")
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/affinity/shen_moyan.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/wen_xu.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/wen_xu.json")
+	DirAccess.remove_absolute(OS.get_user_data_dir() + "/affinity/wen_xu.json")
 
 	if failures == 0:
 		print("==== 全部通过 ====")

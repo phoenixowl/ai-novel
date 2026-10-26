@@ -54,7 +54,10 @@ var _character_events: CharacterEvents  # 人物域集线器（lore_changed 订�
 var _audit_log := AuditLog.new()
 var _audit_open := false
 var _game_config := GameConfig.new()
+var _embed_cfg := EmbeddingConfig.new()  # 语义检索向量档配置（builtin 默认；api 需第二家 Key）
+var _embed_busy := false                 # 向量补齐在途标记（防重入）
 var _partner_id := ""             # 当前交谈对象（空 = 无对话）
+var _topics := TopicStack.new()   # 话题栈：最近被提及实体（骨架层 S4 信号；随探索重置）
 var _dialogue_busy := false       # 人物域生成中（门控统一输入）
 var _dialogue_settling := false   # 对话结算中（dialogue_ended 引擎事件到信号之间的窗口）
 var _pending_switch: Dictionary = {}  # 自动切换对话：{npc, speech}，等结算完成后续送
@@ -82,6 +85,8 @@ func _ready() -> void:
 	_dialogue_events = EventBus.resolve().hub(DialogueEvents) as DialogueEvents
 	repository = LoreRepository.shared()  # 统一入口：作者数据全项目一份
 	_game_config.load_from_disk()
+	_embed_cfg.load_from_disk()
+	_sync_embedding_model()
 	# 世界结构层：作者实体与场景导入注册表/位置图（幂等，gen 数据不受影响）
 	EntityRegistry.load_authors(repository)
 	LocationStore.load_authors(repository)
@@ -96,6 +101,7 @@ func _ready() -> void:
 	_events.cmd_get_state.connect(_on_cmd_get_state)
 	_events.cmd_set_knobs.connect(_on_cmd_set_knobs)
 	_events.cmd_get_knobs.connect(_on_cmd_get_knobs)
+	_events.cmd_set_embedding_config.connect(_on_cmd_set_embedding_config)
 	_events.cmd_add_fact.connect(_on_cmd_add_fact)
 	_events.cmd_edit_fact.connect(_on_cmd_edit_fact)
 	_events.cmd_delete_fact.connect(_on_cmd_delete_fact)
@@ -125,6 +131,7 @@ func _exit_tree() -> void:
 		_events.cmd_get_state.disconnect(_on_cmd_get_state)
 		_events.cmd_set_knobs.disconnect(_on_cmd_set_knobs)
 		_events.cmd_get_knobs.disconnect(_on_cmd_get_knobs)
+		_events.cmd_set_embedding_config.disconnect(_on_cmd_set_embedding_config)
 		_events.cmd_add_fact.disconnect(_on_cmd_add_fact)
 		_events.cmd_edit_fact.disconnect(_on_cmd_edit_fact)
 		_events.cmd_delete_fact.disconnect(_on_cmd_delete_fact)
@@ -162,9 +169,12 @@ func _resolve_with_dm(input_text: String) -> void:
 	for id in present:
 		present_ids[id] = true
 
-	# 冻结世界材料（事实三通道；流水取近期窗口——持久后果走临时事实通道沉淀进正典，
-	# 提及扫描覆盖行动原文与窗口内流水）
+	# 冻结世界材料：话题栈喂料（扫描输入）→ 融合检索（骨架信号 + 语义层）→ 单一预算
+	# 语义层二选一：api 档先嵌查询文本（失败/超时自动回落 BM25），builtin 档直接 BM25
 	var history := WorldStream.recent_mixed_lines(DM_HISTORY_WINDOW)
+	var qvec := PackedFloat32Array()
+	if _embed_cfg.vector_enabled():
+		qvec = await _embed_query(input_text, history)
 	var pack := DMPackBuilder.build(
 		input_text,
 		turn_number + 1,
@@ -173,6 +183,10 @@ func _resolve_with_dm(input_text: String) -> void:
 		LocationStore.current(),
 		EntityRegistry.display_name(LocationStore.current()),
 		history,
+		present,
+		_partner_id,
+		_topics,
+		qvec,
 	)
 	_events.pack_built.emit(pack)
 
@@ -210,6 +224,7 @@ func _resolve_with_dm(input_text: String) -> void:
 	parsed["raw"] = str(result.get("raw", ""))
 	_events.dm_resolved.emit(parsed)
 	var route := str(parsed.get("route", "action"))
+	var landed_turn := turn_number
 	match route:
 		"reject":
 			_emit_event({"event": "world_input_rejected", "text": input_text,
@@ -225,6 +240,9 @@ func _resolve_with_dm(input_text: String) -> void:
 					str(parsed.get("narration", "")), str(parsed.get("outcome", "pending")))
 				_land_declared_facts(parsed.get("facts", []))
 			_deliver_speech(parsed, present)
+	# 话题栈衰减：仅世界回合落地时推进（纯话语不推进世界，栈不衰减）
+	if turn_number > landed_turn:
+		_topics.tick()
 	_broadcast_state()
 
 
@@ -274,6 +292,7 @@ func _land_declared_facts(facts: Array) -> void:
 	if landed > 0:
 		CanonStore.save()
 		_emit_canon()
+		_backfill_embeddings()
 
 
 ## 话语分派：无对话 → 开始并送话；对象相同 → 直接送话；对象不同 → 结算当前再切换。
@@ -285,6 +304,7 @@ func _deliver_speech(parsed: Dictionary, present: Array[String]) -> void:
 		_emit_event({"event": "world_input_rejected", "text": speech, "reason": "此处没有可交谈的人。"})
 		_events.world_input_rejected.emit(speech, "此处没有可交谈的人。")
 		return
+	_topics.touch([npc])  # 说话目标入栈/续命（其名下事实随 S4 保持可激活）
 	if _partner_id == npc:
 		_dialogue_events.cmd_submit.emit(speech)
 	elif not _partner_id.is_empty():
@@ -304,6 +324,7 @@ func _on_cmd_talk_to(npc_id: String) -> void:
 		return
 	if npc_id == _partner_id:
 		return
+	_topics.touch([npc_id])
 	if not _partner_id.is_empty():
 		_pending_switch = {"npc": npc_id, "speech": ""}
 		_dialogue_settling = true
@@ -460,6 +481,7 @@ func _on_cmd_settle_exploration() -> void:
 			"note": "结算未被点名的临时申报已移除"})
 	CanonStore.save()
 	_emit_canon()
+	_backfill_embeddings()
 	_emit_event({"event": "exploration_settled", "facts": count, "turns": turn_number,
 		"confirmed": confirmed, "discarded": discarded, "notes": parsed.get("notes", [])})
 	state = State.ENDED
@@ -472,6 +494,7 @@ func _on_cmd_start_exploration() -> void:
 		return
 	turn_number = 0
 	WorldStream.clear()
+	_topics.clear()
 	_pending_switch = {}
 	_partner_id = ""
 	state = State.WAITING_PLAYER
@@ -574,6 +597,17 @@ func _on_cmd_get_knobs() -> void:
 	_events.knobs_changed.emit(current_knobs())
 
 
+## 处理 cmd_set_embedding_config：写入并持久化检索档位配置；换嵌入模型时清空旧向量。
+func _on_cmd_set_embedding_config(provider: String, api_key: String, model: String, base_url: String) -> void:
+	_embed_cfg.provider = provider
+	_embed_cfg.api_key = api_key
+	_embed_cfg.model = model
+	_embed_cfg.base_url = base_url
+	_embed_cfg.save_to_disk()
+	if CanonStore.embedding_model() != model:
+		CanonStore.clear_embeddings()
+
+
 ## 当前旋钮快照（Dictionary；键来自 GameConfig.KNOB_DEFS——加旋钮不必改这里）。
 func current_knobs() -> Dictionary:
 	var knobs := {}
@@ -620,6 +654,71 @@ func _dm_fallback(input_text: String, error_text: String) -> Dictionary:
 		"facts": [],
 		"notes": ["DM 输出解析失败，已注入保底行动：" + error_text],
 	}
+
+
+# ============ 语义层向量管线（api 档；builtin 档全部跳过） ============
+
+
+## 查询文本嵌入（每回合一次）：失败/超时返回空向量 → FactRetriever 自动回落 BM25。
+func _embed_query(action_text: String, history: Array[String]) -> PackedFloat32Array:
+	var client := EmbeddingClient.new()
+	client.api_key = _embed_cfg.api_key
+	client.model = _embed_cfg.model
+	client.base_url = _embed_cfg.base_url
+	add_child(client)
+	var result: Dictionary = await client.embed_texts([action_text + " " + " ".join(history)])
+	client.queue_free()
+	if not bool(result.get("ok", false)):
+		push_warning("查询嵌入失败，本回合回落 BM25：%s" % str(result.get("error", "")))
+		return PackedFloat32Array()
+	var vectors: Array = result.get("embeddings", [])
+	if vectors.is_empty():
+		return PackedFloat32Array()
+	return vectors[0]
+
+
+## 正典模型名与配置不一致（换嵌入模型）→ 清空全部向量等待重嵌。
+func _sync_embedding_model() -> void:
+	if not _embed_cfg.vector_enabled():
+		return
+	var recorded := CanonStore.embedding_model()
+	if not recorded.is_empty() and recorded != _embed_cfg.model:
+		CanonStore.clear_embeddings()
+
+
+## 后台补齐缺失的事实向量（落地事实/结算后触发；分批 ≤16，失败静默下次再补）。
+## 以 fire-and-forget 方式调用（不 await）。
+func _backfill_embeddings() -> void:
+	if _embed_busy or not _embed_cfg.vector_enabled():
+		return
+	_embed_busy = true
+	var client := EmbeddingClient.new()
+	client.api_key = _embed_cfg.api_key
+	client.model = _embed_cfg.model
+	client.base_url = _embed_cfg.base_url
+	add_child(client)
+	var changed := false
+	if CanonStore.embedding_model() != _embed_cfg.model:
+		CanonStore.clear_embeddings()
+		CanonStore.note_embedding_model(_embed_cfg.model)
+	while true:
+		var missing := CanonStore.facts_missing_embeddings()
+		if missing.is_empty():
+			break
+		var batch: Array[String] = []
+		for i in mini(EmbeddingClient.MAX_BATCH, missing.size()):
+			batch.append((missing[i] as CanonFact).content)
+		var result: Dictionary = await client.embed_texts(batch)
+		if not bool(result.get("ok", false)):
+			break  # 网络失败：静默放弃本批，下次触发再补
+		var vectors: Array = result.get("embeddings", [])
+		for i in mini(vectors.size(), missing.size()):
+			(missing[i] as CanonFact).embedding = vectors[i]
+			changed = true
+	client.queue_free()
+	_embed_busy = false
+	if changed:
+		CanonStore.save()
 
 
 ## 在场人物行（"[id] 规范名——身份"）：人物域优先（身份完整），注册表兜底（仅名字）。
