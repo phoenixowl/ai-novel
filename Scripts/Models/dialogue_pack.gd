@@ -101,7 +101,7 @@ func to_display_text() -> String:
 		affinity, AffinityStore.tier_label(affinity), AffinityStore.tier_text(affinity)])
 	p.append("· 人设基调：%s" % str(npc_state.get("tone", "")))
 	p.append("")
-	p.append("[b]■ 行动清单（三选一）[/b]")
+	p.append("[b]■ 行动清单（二选一；结束对话走 dialogue.end 工具）[/b]")
 	for action in action_list:
 		p.append("· [color=#90be6d]%s[/color]（%s）%s" % [action.get("type", ""), action.get("name", ""), action.get("description", "")])
 	p.append("")

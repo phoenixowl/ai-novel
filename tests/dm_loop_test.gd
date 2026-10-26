@@ -47,6 +47,10 @@ func _run() -> void:
 	var dm := DMController.new()
 	root.add_child(dm)
 
+	# 新世界的首个场景按 id 排序为百草堂——把探索起点走到作坊市街
+	# （本测试的在场闭集与移动断言均基于 fangshi；baicaotang 与 fangshi 相邻）
+	LocationStore.travel_to("fangshi")
+
 	var ne := bus.hub(DMEvents) as DMEvents
 	var de := bus.hub(DialogueEvents) as DialogueEvents
 	# 世界流 = WorldStream（合并流：叙述事件 + 对话回声副本，屏幕与 DM 上下文同源）

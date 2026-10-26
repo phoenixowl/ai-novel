@@ -98,7 +98,7 @@ func _dm_route_sample(user_prompt: String) -> String:
 	var action_part := ""
 	var narration := ""
 	var outcome := ""
-	var facts: Array = []
+	var tool_calls: Array = []
 	if route == "action" or route == "mixed":
 		action_part = text
 		if route == "mixed":
@@ -107,16 +107,17 @@ func _dm_route_sample(user_prompt: String) -> String:
 			narration = "你依言做了。周围的一切安静地回应你——没有意外，也没有惊喜。"
 		outcome = "success"
 		# 离线近似：行动落地即申报一条持久事实（演示临时事实通道；重复申报由引擎去重）
-		facts.append({"content": "柜台那边刚刚有人翻动过东西", "weight": "minor"})
+		tool_calls.append({"tool": "facts.declare",
+			"args": {"content": "柜台那边刚刚有人翻动过东西", "weight": "minor"}})
+	if (route == "speech" or route == "mixed") and not npc.is_empty():
+		tool_calls.append({"tool": "dialogue.start", "args": {"npc": npc, "speech": speech}})
 	return JSON.stringify({
 		"route": route,
-		"npc": npc,
 		"action": action_part,
 		"narration": narration,
 		"outcome": outcome,
-		"speech": speech if route == "speech" or route == "mixed" else "",
 		"reason": reason,
-		"facts": facts,
+		"tool_calls": tool_calls,
 	}, "  ")
 
 
@@ -230,7 +231,8 @@ static func _contains_any(text: String, keys: Array) -> bool:
 # ———— 样本（与真实回应同构：turn_id / inner_thought / utterance / claim_type / action） ————
 
 
-## 情绪税话题样本（claim=猜测，听说的带保留）。turn：回显用的轮次编号。
+## 情绪税话题样本（claim=猜测，听说的带保留；好感度与信念走工具调用）。
+## turn：回显用的轮次编号。
 static func sample_tax(turn: int) -> String:
 	return JSON.stringify({
 		"turn_id": turn,
@@ -238,7 +240,10 @@ static func sample_tax(turn: int) -> String:
 		"utterance": "情绪税？月底了，谁来我这儿喝茶都先叹这口气。我这儿只管茶，份额的事，你还是去问税官。",
 		"claim_type": "猜测",
 		"action": {"type": "answer", "description": "一边擦盖碗一边应声"},
-		"belief_updates": [{"ref": 10, "relation": "佐证", "note": "来客也在说税涨"}],
+		"tool_calls": [
+			{"tool": "affinity.change", "args": {"delta": 2}},
+			{"tool": "belief.propose", "args": {"ref": 10, "relation": "佐证", "note": "来客也在说税涨"}},
+		],
 	}, "  ")
 
 
@@ -264,14 +269,18 @@ static func sample_silence(turn: int) -> String:
 	}, "  ")
 
 
-## 结束对话样本：附离开动作描述（设计 4.4 要求）。turn：回显用的轮次编号。
+## 结束对话样本：经 dialogue.end 工具收场（附离开动作描述，设计 4.4 要求）。
+## turn：回显用的轮次编号。
 static func sample_end_dialogue(turn: int) -> String:
 	return JSON.stringify({
 		"turn_id": turn,
 		"inner_thought": "话说到这儿，也差不多了。",
 		"utterance": "茶凉了就不好喝了。去吧，路灯下当心脚滑，改日再来，给你留个靠窗的位子。",
 		"claim_type": "确知",
-		"action": {"type": "end_dialogue", "description": "转身回了柜台，把青瓷盖碗扣上。"},
+		"action": {"type": "answer", "description": "起身送客"},
+		"tool_calls": [
+			{"tool": "dialogue.end", "args": {"departure": "转身回了柜台，把青瓷盖碗扣上。"}},
+		],
 	}, "  ")
 
 

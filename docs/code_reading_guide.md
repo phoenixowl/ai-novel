@@ -151,6 +151,12 @@ Scripts/
 │     audit_log.gd              jsonl 追加日志（user://dialogue_logs/）
 │     game_config.gd            DM 风格四旋钮的持久化（[game] 节；KNOB_DEFS 是旋钮定义唯一来源）
 │     game_paths.gd             user:// 目录布局常量的唯一登记处（如对话审计日志目录）
+├─ Toolcall/                   工具调用命名空间：模型输出的操作契约（定义/权限/解析/渲染；
+│                               DM 与 NPC 的 tool_calls 都经此校验——执行仍落在各域控制器）
+│     toolcall_catalog.gd     ★ 目录与权限表（谁能调用什么——唯一来源；加工具在此登记）
+│     toolcall_parser.gd         tool_calls → 权限/结构校验（越权丢弃记 notes；上限 8/回合）
+│     toolcall_def.gd            工具名片（名称/调用方/参数示例/提示词文档行，纯数据）
+│     toolcall_renderer.gd       按调用方渲染静态层工具清单（权限表即文档来源）
 ├─ LLM/
 │     llm_client.gd             抽象基类 + PURPOSE_* 用途常量 + retire 防悬挂机制
 │     llm_controller.gd       ★ autoload "LLM"：complete_json 容错解析 {ok,transport,data,raw}
@@ -263,6 +269,7 @@ Mock 客户端按 PURPOSE 与玩家话题挑预制样本，所以测试断言是
 | 换/加模型供应商 | 派生 `LLMClient` 子类实现 `complete()`，`LLMController._apply_config` 挂上；purpose 常量在 `llm_client.gd` |
 | 新增一种 AI 功能 | 订阅自己的 cmd + 发自己的 evt + `await LLM.complete_json(sys, usr, PURPOSE_你新加的)`——参考事实整理者的接线 |
 | 调 NPC 说话风格 | `PromptBuilder._build_system`（静态层）；调 DM 文风 → 设置屏四旋钮（只改措辞不改结构） |
+| 给模型加一个操作（工具） | `ToolcallCatalog` 登记权限与文档 → `ToolcallParser._validate_args` 补参数校验 → 所属控制器补落地（参考 facts.declare 的接线） |
 | 改知识/信任规则 | `KnowledgeEntry.apply_*`（算术全在这里，改完跑 smoke_test） |
 
 ## 9. 改代码前的四条硬规则

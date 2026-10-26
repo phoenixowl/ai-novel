@@ -3,12 +3,13 @@ extends RefCounted
 ## 【流程二：材料包】
 ## 引擎冻结现场，收集 NPC 此刻的全部相关情况，组装材料包（设计 4.1 第3步、4.3/4.4）：
 ##   素材包 = 场景素材 + 玩家原话 + 信念层 + 检索世界事实 + 记忆 + 自身状态
-##   行动清单 = 三项对话行动
+##   行动清单 = 两项对话行动（答话/沉默；结束对话走 Toolcall 的 dialogue.end）
 ## 行动提案的数据格式从第一天就统一为"类型 + 目标 + 说明"（设计 5.6 接入点一），
 ## 阶段二扩充世界行动类型时只增清单，不改对话流程。
 
 
-## 三项对话行动（设计 4.4）：它们的裁决不需要游戏逻辑。
+## 两项对话行动（设计 4.4；原第三项“结束对话”已改为 Toolcall 的 dialogue.end 工具调用）：
+## 它们的裁决不需要游戏逻辑。
 static func dialogue_actions() -> Array[Dictionary]:
 	var actions: Array[Dictionary] = []
 	actions.append({
@@ -22,12 +23,6 @@ static func dialogue_actions() -> Array[Dictionary]:
 		"name": "沉默",
 		"target": "玩家",
 		"description": "永远可选。明示的冷处理（如：不置可否地看着你）。冷淡、戒备、不想搭理都是合法的人设表现。",
-	})
-	actions.append({
-		"type": "end_dialogue",
-		"name": "结束对话",
-		"target": "本段对话",
-		"description": "永远可选。必须附带离开的动作描述（如：转身回了柜台），不允许凭空消失。",
 	})
 	return actions
 

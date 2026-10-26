@@ -27,8 +27,8 @@ Dialogue="*res://Scripts/Dialogue/dialogue_controller.gd"
 
 window/size/viewport_width=1500
 window/size/viewport_height=940
+window/size/borderless=true
 window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
 
 [editor_plugins]
 

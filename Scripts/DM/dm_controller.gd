@@ -61,6 +61,7 @@ var _topics := TopicStack.new()   # 话题栈：最近被提及实体（骨架�
 var _dialogue_busy := false       # 人物域生成中（门控统一输入）
 var _dialogue_settling := false   # 对话结算中（dialogue_ended 引擎事件到信号之间的窗口）
 var _pending_switch: Dictionary = {}  # 自动切换对话：{npc, speech}，等结算完成后续送
+var _pending_force_end := false   # DM dialogue.end 与递话同回合：顺延到回应落地后强制收场
 
 static var _shared: DMController
 
@@ -222,7 +223,6 @@ func _resolve_with_dm(input_text: String) -> void:
 
 	var parsed: Dictionary = DMParser.validate_dm(result["data"], present_ids, _partner_id)
 	parsed["raw"] = str(result.get("raw", ""))
-	_events.dm_resolved.emit(parsed)
 	var route := str(parsed.get("route", "action"))
 	var landed_turn := turn_number
 	match route:
@@ -240,6 +240,10 @@ func _resolve_with_dm(input_text: String) -> void:
 					str(parsed.get("narration", "")), str(parsed.get("outcome", "pending")))
 				_land_declared_facts(parsed.get("facts", []))
 			_deliver_speech(parsed, present)
+	# DM 强制收场（dialogue.end 工具）落地——冲突消解记入 parsed.notes，之后才广播
+	# 裁决结果，④ 调试页能看到收场顺延/忽略的留痕。
+	_apply_force_end(parsed)
+	_events.dm_resolved.emit(parsed)
 	# 话题栈衰减：仅世界回合落地时推进（纯话语不推进世界，栈不衰减）
 	if turn_number > landed_turn:
 		_topics.tick()
@@ -317,6 +321,33 @@ func _deliver_speech(parsed: Dictionary, present: Array[String]) -> void:
 		_dialogue_events.cmd_submit.emit(speech)
 
 
+## 落地 DM 的 dialogue.end（强制收场）：世界层面结算当前对话（学习与记忆照常落档）。
+## 冲突消解（全部记入 parsed.notes 留痕，④ 调试页可见）：
+##   reject 路由 → 忽略（拒绝的输入不触发世界变化）；
+##   没有进行中的对话 → 忽略；
+##   dialogue.start 指向新对象 → 切场结算已包含收场，不重复执行；
+##   对话已在结算窗口 → 忽略；
+##   与递话同回合（NPC 生成中）→ 顺延到本轮回应落地后（_pending_force_end）。
+func _apply_force_end(parsed: Dictionary) -> void:
+	if not bool(parsed.get("settle", false)):
+		return
+	var notes: Array = parsed.get("notes", [])
+	if str(parsed.get("route", "")) == "reject":
+		notes.append("dialogue.end 与 reject 路由同回合：拒绝的输入不触发世界变化，收场已忽略。")
+	elif _partner_id.is_empty():
+		notes.append("dialogue.end 被忽略：当前没有进行中的对话。")
+	elif not _pending_switch.is_empty():
+		notes.append("dialogue.start 指向新对象：切场结算已包含收场，dialogue.end 未重复执行。")
+	elif _dialogue_settling:
+		notes.append("dialogue.end 被忽略：对话已在结算窗口。")
+	elif _dialogue_busy:
+		_pending_force_end = true
+		notes.append("dialogue.end 与递话同回合：收场顺延至本轮回应落地后。")
+	else:
+		_dialogue_settling = true
+		_dialogue_events.cmd_settle_now.emit()
+
+
 ## 处理 cmd_talk_to：直接与在场人物开始交谈（位置面板捷径，绕过 DM）。
 ## 对话中点名别人同样走自动切换；点名当前对象则不动作。
 func _on_cmd_talk_to(npc_id: String) -> void:
@@ -358,6 +389,7 @@ func _on_dialogue_started(npc_id: String, _npc_name: String, _scene_name: String
 func _on_dialogue_ended_signal(_reason: String) -> void:
 	_partner_id = ""
 	_dialogue_settling = false
+	_pending_force_end = false  # 对话已结束（含 NPC 自行收场）：顺延的强制收场随之作废
 	if not _pending_switch.is_empty():
 		var target := str(_pending_switch.get("npc", ""))
 		var speech := str(_pending_switch.get("speech", ""))
@@ -370,6 +402,12 @@ func _on_dialogue_ended_signal(_reason: String) -> void:
 
 func _on_dialogue_state_changed(_state: String, _turn: int, _turns_left: int, _can_accept: bool, busy: bool) -> void:
 	_dialogue_busy = busy
+	# DM 强制收场的顺延：本轮回应落地（不再生成）后立即结算当前对话。
+	# NPC 自行收场的场合 dialogue_ended 先清标记，此处不会重复结算。
+	if _pending_force_end and not busy and not _partner_id.is_empty():
+		_pending_force_end = false
+		_dialogue_settling = true
+		_dialogue_events.cmd_settle_now.emit()
 
 
 ## 对话事件回声：入世界流水（WorldStream；审计已由人物域落档）。
@@ -496,6 +534,7 @@ func _on_cmd_start_exploration() -> void:
 	WorldStream.clear()
 	_topics.clear()
 	_pending_switch = {}
+	_pending_force_end = false
 	_partner_id = ""
 	state = State.WAITING_PLAYER
 	_emit_event({"event": "exploration_started"})
@@ -652,6 +691,8 @@ func _dm_fallback(input_text: String, error_text: String) -> Dictionary:
 		"speech": "",
 		"reason": "",
 		"facts": [],
+		"settle": false,
+		"tool_calls": [],
 		"notes": ["DM 输出解析失败，已注入保底行动：" + error_text],
 	}
 

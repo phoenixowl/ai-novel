@@ -456,3 +456,37 @@ godot --headless -s tests/dm_loop_test.gd      # DM 统一入口端到端：三�
 
 **已知边界**：模型输出解析失败目前直接注入保底回应（带反馈重试、事实三问审核属后续里程碑，
 代码留有 TODO）；动态生成人物/地点（discoveries/gen_ 前缀）代码保留但当前主链路不产出。
+
+---
+
+## 18. 工具调用命名空间（Toolcall）
+
+模型输出中的"操作"不再写死为顶层 JSON 字段，而是走**工具调用**：输出里带
+`"tool_calls": [{"tool": "facts.declare", "args": {…}}, …]`，引擎按目录校验权限与结构后
+转交各域控制器落地。命名空间为 `Scripts/Toolcall/`（类名前缀 `Toolcall*`，与 Authortool 同款约定）：
+
+| 类 | 职责 |
+|---|---|
+| `ToolcallCatalog` | 目录与**权限表**（谁能调用什么——唯一来源）；加工具在此登记 |
+| `ToolcallDef` | 工具名片：名称/标题/调用方/参数示例/提示词文档行（纯数据） |
+| `ToolcallParser` | `tool_calls` 数组 → 权限+结构校验（越权/坏项丢弃记 notes；单回合上限 8 个；扁平参数写法兼容） |
+| `ToolcallRenderer` | 按调用方渲染静态层"你可用的工具"文档段——**权限表即文档来源** |
+
+五个工具与权限矩阵（与各域硬线一一对应）：
+
+| 工具 | DM | NPC | 语义 |
+|---|---|---|---|
+| `facts.declare` | ✓ | ✗ | 申报持久事实（临时通道，结算复核）——NPC 想让世界记住事只能说给人听 |
+| `dialogue.start` | ✓ | ✗ | 递话/开启对话（speech/mixed 路由必调；npc 过在场闭集钳制） |
+| `dialogue.end` | ✓ | ✓ | DM 强制结算当前对话；NPC 结束自己这场（须写 departure 离开动作） |
+| `affinity.change` | ✗ | ✓ | 好感度变化 ±10（NPC 自己的心，DM 不能代写；多次调用合计钳位） |
+| `belief.propose` | ✗ | ✓ | 信念提案 {ref, relation, note}（硬线①：DM 不碰 NPC 信念；延后到对话结束结算） |
+
+**执行仍在控制器**：工具层只做契约（定义/权限/解析/渲染），不直接改世界——写入照旧收敛到
+`CanonStore.establish / AffinityStore.apply_change / end_dialogue` 等引擎函数（硬规则不变）。
+`DMParser.validate_dm` / `ResponseParser.validate` 把校验后的调用转成控制器原有的内部结构
+（facts 列表、话语分派、end_dialogue 行动、belief_updates、affinity_change），旧版顶层字段
+（npc/speech/facts、belief_updates/affinity_change、end_dialogue 行动类型）仍兼容解析，工具调用优先。
+NPC 行动清单由三选一改为**二选一**（答话/沉默），结束对话移入工具；DM 新增 dialogue.end
+强制收场能力（结算当前对话，学习与记忆照常落档）。加新工具三步：`ToolcallCatalog` 登记
+（权限+文档）→ `ToolcallParser` 补参数校验 → 所属控制器补落地。

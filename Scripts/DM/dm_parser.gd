@@ -2,9 +2,10 @@ class_name DMParser
 extends RefCounted
 ## 旁白域输出契约校验（受控开放）。JSON 提取由 LLMController.complete_json / JsonTool
 ## 统一完成，本类只做结构校验与确定性修复，每一步记入 notes（调试页展示）：
-##   validate_dm     —— DM 裁决输出（统一入口）：route 路由枚举 / npc 在场闭集 /
-##                     outcome 枚举 / action-narration-speech 字段拆分 /
-##                     facts 持久事实申报（仅结构校验，落地由控制器做去重与作用域分配）。
+##   validate_dm     —— DM 裁决输出（统一入口）：route 路由枚举 / outcome 枚举 /
+##                     tool_calls 操作（ToolcallParser 校验权限与结构：dialogue.start 的
+##                     npc 在场闭集钳制、facts.declare 申报、dialogue.end 强制收场）；
+##                     旧版 npc/speech/facts 顶层字段仍兼容解析（工具调用优先）。
 ##   validate_facts  —— 事实提取 agent 输出：facts 数组（新事实开放 + 改写闭集引用；
 ##                     ref 必须在注入的正典编号闭集内，越界降级为新事实）+
 ##                     confirmed 数组（临时事实点名保留，闭集校验，越界忽略）。
@@ -18,10 +19,13 @@ const WEIGHTS := ["major", "minor"]
 ## 校验 DM 裁决输出（统一入口的第一站）。
 ## data：提取好的 JSON Dictionary；present：在场人物 id 集合（闭集）；
 ## partner：当前交谈对象 id（无对话为空串——闭集额外允许它）。
-## 返回 {ok, notes[], route, npc, action, narration, outcome, speech, reason, facts}：
-##   route 非法回落 action；npc 越界钳制（优先 partner，其次首位在场，记 notes）；
-##   speech/mixed 缺 speech 按 action 处理（记 notes）；outcome 非法回落 pending；
-##   facts 为结构合法的持久事实申报 [{content, weight}]（DM 只能新增，无 ref——无改写权）。
+## 返回 {ok, notes[], route, npc, action, narration, outcome, speech, reason, facts,
+## settle, tool_calls}：
+##   route 非法回落 action；话语走 dialogue.start 工具（旧版 npc/speech 顶层字段兼容，
+##   新旧并存按工具优先并记 notes）；npc 越界钳制（优先 partner，其次首位在场，记 notes）；
+##   speech/mixed 缺话语按 action 处理（记 notes）；outcome 非法回落 pending；
+##   facts 为 facts.declare 工具申报的 [{content, weight}]（DM 只能新增，无 ref——无改写权）；
+##   settle = DM 调用了 dialogue.end（强制结算当前对话，由控制器落地）。
 static func validate_dm(data: Dictionary, present: Dictionary, partner := "") -> Dictionary:
 	var notes: Array[String] = []
 
@@ -30,7 +34,27 @@ static func validate_dm(data: Dictionary, present: Dictionary, partner := "") ->
 		notes.append("route 缺失或非法（%s），按 action 处理。" % route)
 		route = "action"
 
-	var npc := str(JsonTool.pick(data, ["npc", "目标"], ""))
+	# 工具调用（caller=dm：dialogue.start / facts.declare / dialogue.end；越权项已被丢弃）
+	var calls := ToolcallParser.parse(data, ToolcallCatalog.CALLER_DM, notes)
+
+	# 话语：dialogue.start 优先，旧版 npc/speech 顶层字段兼容；新旧并存时按工具优先并留痕
+	var npc := ""
+	var speech := ""
+	for c in calls:
+		if str(c["tool"]) == ToolcallCatalog.DIALOGUE_START:
+			var a: Dictionary = c["args"]
+			npc = str(a.get("npc", ""))
+			speech = str(a.get("speech", ""))
+			break
+	var legacy_speech := str(JsonTool.pick(data, ["speech", "发言", "话"], "")).strip_edges()
+	if npc.is_empty() and speech.is_empty():
+		if not legacy_speech.is_empty():
+			npc = str(JsonTool.pick(data, ["npc", "目标"], ""))
+			speech = legacy_speech
+			notes.append("话语未走 dialogue.start 工具，按旧字段兼容解析。")
+	elif not legacy_speech.is_empty():
+		notes.append("speech 顶层字段与 dialogue.start 工具并存，按工具调用优先，旧字段已忽略。")
+
 	if not npc.is_empty() and not present.has(npc) and npc != partner:
 		# 模型可能给了名字而非 id：经注册表按规范名/别名解析兜底一次，命中在场者则采纳
 		var resolved := EntityRegistry.resolve(npc)
@@ -49,19 +73,36 @@ static func validate_dm(data: Dictionary, present: Dictionary, partner := "") ->
 
 	var action := str(JsonTool.pick(data, ["action", "行动"], "")).strip_edges()
 	var narration := str(JsonTool.pick(data, ["narration", "叙述", "旁白"], "")).strip_edges()
-	var speech := str(JsonTool.pick(data, ["speech", "发言", "话"], "")).strip_edges()
 	var outcome := str(JsonTool.pick(data, ["outcome", "结果"], ""))
 	if (route == "action" or route == "mixed") and not OUTCOMES.has(outcome):
 		notes.append("outcome 缺失或非法（%s），按 pending 处理。" % outcome)
 		outcome = "pending"
 	if (route == "speech" or route == "mixed") and speech.is_empty():
-		notes.append("说话路由缺少 speech，按 action 处理。")
+		notes.append("说话路由缺少话语（dialogue.start 缺失或不完整），按 action 处理。")
 		route = "action"
 	if route == "action" and narration.is_empty():
 		notes.append("行动路由缺少叙述，注入保底旁白。")
 		narration = "你做了什么，但世界暂时没有回应。（DM 叙述缺失）"
 		if outcome.is_empty():
 			outcome = "pending"
+
+	# 事实申报：facts.declare 工具优先，旧版 facts 顶层数组兼容；新旧并存时按工具优先并留痕
+	var facts: Array[Dictionary] = []
+	for c in calls:
+		if str(c["tool"]) == ToolcallCatalog.FACT_DECLARE:
+			var a: Dictionary = c["args"]
+			facts.append({"content": str(a.get("content", "")), "weight": str(a.get("weight", "minor"))})
+	if facts.is_empty():
+		facts = _parse_declared_facts(data, notes)
+	elif data.has("facts"):
+		notes.append("facts 顶层字段与 facts.declare 工具并存，按工具调用优先，旧字段已忽略。")
+
+	# 强制收场：DM 调用了 dialogue.end
+	var settle := false
+	for c in calls:
+		if str(c["tool"]) == ToolcallCatalog.DIALOGUE_END:
+			settle = true
+			break
 
 	return {
 		"ok": true,
@@ -73,12 +114,14 @@ static func validate_dm(data: Dictionary, present: Dictionary, partner := "") ->
 		"outcome": outcome,
 		"speech": speech,
 		"reason": str(JsonTool.pick(data, ["reason", "理由"], "")),
-		"facts": _parse_declared_facts(data, notes),
+		"facts": facts,
+		"settle": settle,
+		"tool_calls": calls,
 	}
 
 
-## 解析 DM 申报的持久事实（临时事实通道）：每项 {content, weight}；
-## 坏项丢弃并记 notes。仅结构校验——去重与作用域分配由控制器确定性地做。
+## 解析 DM 申报的持久事实（旧版 facts 顶层数组的兼容路径——新契约走 facts.declare 工具）：
+## 每项 {content, weight}；坏项丢弃并记 notes。仅结构校验——去重与作用域分配由控制器做。
 static func _parse_declared_facts(data: Dictionary, notes: Array[String]) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	var raw: Variant = JsonTool.pick(data, ["facts", "申报事实"], null)
