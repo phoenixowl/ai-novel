@@ -1,7 +1,37 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://Scripts/UI/main_menu_screen.gd" id="1_menu_ui"]
 [ext_resource type="Texture2D" uid="uid://df3ilcov4jlqj" path="res://assets/desire_city_menu_bg.jpg" id="2_menu_bg"]
+
+[sub_resource type="SystemFont" id="SystemFont_title"]
+font_names = PackedStringArray("STZhongsong", "华文中宋", "STSong", "SimSun", "宋体")
+font_weight = 700
+multichannel_signed_distance_field = true
+msdf_pixel_range = 16
+msdf_size = 48
+
+[sub_resource type="SystemFont" id="SystemFont_sub"]
+font_names = PackedStringArray("STKaiti", "华文楷体", "KaiTi", "楷体", "STSong", "SimSun")
+font_weight = 400
+
+[sub_resource type="SystemFont" id="SystemFont_btn"]
+font_names = PackedStringArray("STZhongsong", "华文中宋", "STSong", "SimSun", "宋体")
+font_weight = 500
+
+[sub_resource type="LabelSettings" id="LabelSettings_title"]
+font = SubResource("SystemFont_title")
+font_size = 40
+font_color = Color(0.96, 0.86, 0.62, 1)
+outline_size = 6
+outline_color = Color(0.18, 0.06, 0.22, 0.75)
+shadow_size = 8
+shadow_color = Color(0.55, 0.2, 0.75, 0.45)
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="LabelSettings" id="LabelSettings_sub"]
+font = SubResource("SystemFont_sub")
+font_size = 14
+font_color = Color(0.78, 0.72, 0.9, 0.92)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu"]
 content_margin_left = 44.0
@@ -125,15 +155,13 @@ theme_override_constants/separation = 16
 
 [node name="MenuTitle" type="Label" parent="MenuCenter/MenuPanel/MenuBox"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.95, 0.88, 0.72, 1)
-theme_override_font_sizes/font_size = 30
-text = "欲望之都"
+label_settings = SubResource("LabelSettings_title")
+text = "欲 望 之 都"
 horizontal_alignment = 1
 
 [node name="MenuSubtitle" type="Label" parent="MenuCenter/MenuPanel/MenuBox"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.72, 0.68, 0.86, 0.9)
-theme_override_font_sizes/font_size = 13
+label_settings = SubResource("LabelSettings_sub")
 text = "AI 互动小说 · 对话原型（阶段一）"
 horizontal_alignment = 1
 
@@ -145,6 +173,8 @@ theme_override_styles/separator = SubResource("StyleBoxLine_sep")
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
+theme_override_fonts/font = SubResource("SystemFont_btn")
+theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.92, 0.9, 0.96, 1)
 theme_override_colors/font_hover_color = Color(0.98, 0.92, 0.72, 1)
 theme_override_colors/font_pressed_color = Color(0.85, 0.75, 0.55, 1)
@@ -158,6 +188,8 @@ text = "探索世界"
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
+theme_override_fonts/font = SubResource("SystemFont_btn")
+theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.92, 0.9, 0.96, 1)
 theme_override_colors/font_hover_color = Color(0.98, 0.92, 0.72, 1)
 theme_override_colors/font_pressed_color = Color(0.85, 0.75, 0.55, 1)
@@ -171,6 +203,8 @@ text = "人物"
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
+theme_override_fonts/font = SubResource("SystemFont_btn")
+theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.92, 0.9, 0.96, 1)
 theme_override_colors/font_hover_color = Color(0.98, 0.92, 0.72, 1)
 theme_override_colors/font_pressed_color = Color(0.85, 0.75, 0.55, 1)
@@ -184,6 +218,8 @@ text = "设置"
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
+theme_override_fonts/font = SubResource("SystemFont_btn")
+theme_override_font_sizes/font_size = 17
 theme_override_colors/font_color = Color(0.92, 0.9, 0.96, 1)
 theme_override_colors/font_hover_color = Color(0.98, 0.92, 0.72, 1)
 theme_override_colors/font_pressed_color = Color(0.85, 0.75, 0.55, 1)
