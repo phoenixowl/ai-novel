@@ -175,7 +175,7 @@ Scripts/Lore/                            「设定」域
   character_controller.gd (302)  控制器：人物快照的一切修改 + 知识日志构建
   character_events.gd      (24)  契约：人物域信号
   lore_repository.gd      (334)  存取器·聚合 res://settings/ 全部设定
-  snapshot_store.gd        (85)  存取器·user://characters/ 快照读写
+  snapshot_store.gd        (85)  存取器·saves/characters/ 快照读写
   affinity_store.gd        (71)  存取器·好感度档位/增减/存取
   knowledge_journal.gd    (378)  模型·知识日志：信任算术/习得/复活/记忆
   character_card.gd / player_card.gd / faction.gd / scene_card.gd   模型·卡片

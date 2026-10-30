@@ -9,10 +9,12 @@ extends RefCounted
 enum FactSource { NARRATOR, PLAYER }
 enum FactWeight { MAJOR, MINOR }
 enum FactStatus { ACTIVE, SUPERSEDED, PROVISIONAL }
+enum FactVisibility { LAW, PUBLIC, LOCAL, SECRET }
 
 const SOURCE_KEYS := ["narrator", "player"]
 const WEIGHT_KEYS := ["major", "minor"]
 const STATUS_KEYS := ["active", "superseded", "provisional"]
+const VISIBILITY_KEYS := ["law", "public", "local", "secret"]
 
 
 static func source_to_key(value: int) -> String:
@@ -27,6 +29,21 @@ static func source_from_key(key: String) -> int:
 ## 便捷：按"是否玩家发明"给出来源键（解析器输出用）。
 static func source_key(is_player: bool) -> String:
 	return SOURCE_KEYS[1] if is_player else SOURCE_KEYS[0]
+
+
+static func visibility_to_key(value: int) -> String:
+	return VISIBILITY_KEYS[clampi(value, 0, VISIBILITY_KEYS.size() - 1)]
+
+
+## 可见性默认推导：未标注时按作用域推导——无作用域（全局）→ PUBLIC（公共传闻），
+## 有作用域 → LOCAL（本地限定）。SECRET 只能显式标注（知情者很少的事）。
+static func visibility_default(has_scope: bool) -> int:
+	return FactVisibility.PUBLIC if not has_scope else FactVisibility.LOCAL
+
+
+static func visibility_from_key(key: String) -> int:
+	var index := VISIBILITY_KEYS.find(key)
+	return index if index != -1 else -1  # -1 = 未标注，走默认推导
 
 
 static func weight_to_key(value: int) -> String:
@@ -52,6 +69,7 @@ var content := ""               # 事实表述（精确去重键）
 var source: int = FactSource.NARRATOR
 var weight: int = FactWeight.MINOR
 var status: int = FactStatus.ACTIVE
+var visibility: int = FactVisibility.PUBLIC  # 谁能知道（生成候选知识池的分层依据；运行期检索不受影响）
 var superseded_by := 0          # 取代者的 id；未被取代 = 0
 var scope: Array[String] = []   # 作用域实体 id 列表；空 = 全局
 var created_at := ""
@@ -70,6 +88,7 @@ func to_dict() -> Dictionary:
 		"source": source_to_key(source),
 		"weight": weight_to_key(weight),
 		"status": status_to_key(status),
+		"visibility": visibility_to_key(visibility),
 		"superseded_by": superseded_by,
 		"scope": scope,
 		"created_at": created_at,
@@ -98,6 +117,9 @@ static func from_dict(data: Dictionary) -> CanonFact:
 				var entity_id := str((item as Dictionary).get("entity_id", ""))
 				if not entity_id.is_empty():
 					f.scope.append(entity_id)
+	f.visibility = visibility_from_key(str(data.get("visibility", "")))
+	if f.visibility == -1:
+		f.visibility = visibility_default(not f.scope.is_empty())
 	f.created_at = str(data.get("created_at", ""))
 	var b64 := str(data.get("embedding_b64", ""))
 	if not b64.is_empty():

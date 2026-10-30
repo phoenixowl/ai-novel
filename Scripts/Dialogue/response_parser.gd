@@ -14,7 +14,7 @@ extends RefCounted
 
 const CLAIM_TYPES := ["确知", "猜测", "虚张声势"]
 const ACTION_TYPES := ["answer", "silence", "end_dialogue"]
-const RELATIONS := ["佐证", "矛盾"]
+const RELATIONS := ToolcallBeliefPropose.RELATIONS  # 佐证/矛盾的唯一来源在信念提案工具类
 
 
 ## 返回 Dictionary：

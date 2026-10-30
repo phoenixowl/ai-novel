@@ -5,8 +5,8 @@ extends Node
 ## 恢复卡面、写回作者卡面、还原设定。人物数据模型为 Models 层的 Person
 ## （knowledge: Array[KnowledgeEntry] 承载信念，确定性算术在 KnowledgeEntry 上）。
 ##
-## 数据模型：user://characters/<id>.json 是单人物的运行时快照（persona 区 + journal 区），
-## 一切修改都写快照；res://settings/ 是只读模板，只有「写回」会触碰它。
+## 数据模型：saves/characters/<id>.json 是单人物的运行时快照（persona 区 + journal 区），
+## 一切修改都写快照；settings/ 是初始世界观，「写回」直接写它。
 ##
 ## 对外交互：UI 经 EventBus（autoload "Events"）在 CharacterEvents 集线器上
 ## 连接 cmd_* 命令信号、接收事件信号；设定变更经 lore_changed 广播，
@@ -66,14 +66,14 @@ func _exit_tree() -> void:
 ## 逐字一致的知识转换为信念引用（kind=ref，fact_id 指向正典）——作者正典播种后
 ## 的一次性对齐。幂等（已是引用或无匹配的条目不动），已失效传闻不转换。
 func relink_runtime_journals() -> void:
-	var dir := DirAccess.open(SnapshotStore.DIR)
+	var dir := DirAccess.open(SnapshotStore.dir())
 	if dir == null:
 		return
 	dir.list_dir_begin()
 	var file_name := dir.get_next()
 	while not file_name.is_empty():
 		if not dir.current_is_dir() and file_name.ends_with(".json"):
-			var path := "%s/%s" % [SnapshotStore.DIR, file_name]
+			var path := "%s/%s" % [SnapshotStore.dir(), file_name]
 			var data := JsonTool.read_json_file(path)
 			var changed := false
 			for raw in data.get("knowledge", []):
@@ -101,9 +101,9 @@ func save_journal(person: Person, npc_id: String) -> void:
 
 
 ## 涟漪计数：某正典条目被取代时，全部人物快照里指向它的信念引用数。
-## 扫描 user://characters/*.json（取代是罕见事件，文件量小，确定性可接受）。
+## 扫描 saves/characters/*.json（取代是罕见事件，文件量小，确定性可接受）。
 func count_knowledge_refs(fact_id: int) -> int:
-	var dir := DirAccess.open(SnapshotStore.DIR)
+	var dir := DirAccess.open(SnapshotStore.dir())
 	if dir == null:
 		return 0
 	var count := 0
@@ -111,7 +111,7 @@ func count_knowledge_refs(fact_id: int) -> int:
 	var file_name := dir.get_next()
 	while not file_name.is_empty():
 		if not dir.current_is_dir() and file_name.ends_with(".json"):
-			var data := JsonTool.read_json_file(SnapshotStore.DIR + "/" + file_name)
+			var data := JsonTool.read_json_file(SnapshotStore.dir() + "/" + file_name)
 			for raw in data.get("knowledge", []):
 				if raw is Dictionary \
 						and str((raw as Dictionary).get("kind", "")) == "ref" \
@@ -254,12 +254,12 @@ func _save_npc(id: String, payload: Dictionary) -> void:
 	AffinityStore.set_value(id, int(payload.get("affinity", person.affinity)))
 
 
-## 玩家保存：user://player.json（含称呼，覆盖作者默认卡）。
+## 玩家保存：saves/player.json（含称呼，覆盖初始世界观的玩家卡）。
 func _save_player(payload: Dictionary) -> void:
 	repository.player.canonical_name = str(payload.get("name", repository.player.canonical_name))
 	repository.player.identity = str(payload.get("identity", repository.player.identity))
 	repository.player.appearance = str(payload.get("profile", repository.player.appearance))
-	JsonTool.write_json_file("user://player.json", {
+	JsonTool.write_json_file(GamePaths.player_card_path(), {
 		"name": repository.player.canonical_name,
 		"identity": repository.player.identity,
 		"appearance": repository.player.appearance,
@@ -281,9 +281,9 @@ func _on_cmd_reset_character(npc_id: String) -> void:
 	_events.lore_changed.emit()
 
 
-## 处理 cmd_write_back_character：把当前运行时状态反向写入 res:// 作者卡面。
+## 处理 cmd_write_back_character：把当前运行时状态反向写入运行期设定的作者卡面
+## （settings/——便携可写，导出版同样可用；重启后即为新的卡面基准）。
 ## 写回 = 人设 + 全部知识条目（卡面格式，voided 记作"已失效"）；记忆/好感度是体验数据不写回。
-## 仅 Godot 编辑器环境可行——导出版的 res:// 只读，写入失败并反馈。
 func _on_cmd_write_back_character(npc_id: String) -> void:
 	var data: Dictionary
 	var path: String
@@ -293,16 +293,16 @@ func _on_cmd_write_back_character(npc_id: String) -> void:
 			"identity": repository.player.identity,
 			"appearance": repository.player.appearance,
 		}
-		path = "res://settings/player.json"
+		path = GamePaths.settings_dir() + "/player.json"
 	elif repository.characters.has(npc_id):
 		data = (repository.characters[npc_id] as Person).to_author_dict()
-		path = "res://settings/characters/%s.json" % npc_id
+		path = GamePaths.settings_dir() + "/characters/%s.json" % npc_id
 	else:
 		return
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		_events.character_action_result.emit(npc_id, false,
-			"写入失败：%s（导出版的 res:// 只读，仅 Godot 编辑器环境可写回）" % path)
+			"写入失败：%s（目录不可写）" % path)
 		return
 	file.store_string(JSON.stringify(data, "  "))
 	file.close()
@@ -310,7 +310,7 @@ func _on_cmd_write_back_character(npc_id: String) -> void:
 
 
 ## 处理 cmd_restore_lore：还原设定——删除全部人物快照，回到作者卡面。
-## 好感度（user://affinity/）与对话审计日志（user://dialogue_logs/）保留。
+## 好感度（saves/affinity/）与对话审计日志（saves/dialogue_logs/）保留。
 func _on_cmd_restore_lore() -> void:
 	SnapshotStore.erase_all()
 	LoreRepository.reload_shared()

@@ -42,7 +42,7 @@
 
 加上界面 `Scripts/UI/narration_screen.gd`（325 行）与场景 `Scenes/narration_screen.tscn`。
 旁白控制器以 autoload 注册为 `"Narration"`，顺序：Events（总线）→ LLM → Characters
-→ **Narration** → Dialogue。数据落在 `user://world/canon.json`（唯一持久状态，
+→ **Narration** → Dialogue。数据落在 `saves/world/canon.json`（唯一持久状态，
 删掉即世界重置）；`res://settings/mainline.txt` 是作者写的主线基调（只读）。
 
 ---
@@ -124,7 +124,7 @@
    ② 逐条处理 facts：ref>0 走取代（旧条目标 superseded 指向新条目），
       ref=0 新确立（精确去重）→ 每条发 fact_established / fact_superseded
    ③ 发 narration_turn（叙述本体 + 裁决结果）
-   ④ 有事实变化：落盘 user://world/ + 重发 canon_listed
+   ④ 有事实变化：落盘 saves/world/ + 重发 canon_listed
    ⑤ 状态回到"等待你的行动"
 ```
 
@@ -146,7 +146,7 @@
 **3. 有去重和预算。** 同一表述重复确立不产生重复条目；账本超过 120 条时
 major 全保、minor 只保最近 20 条——重大的事永远在，琐碎的事随时间淡忘。
 
-**4. 唯一持久状态。** `user://world/canon.json` 是旁白域的全部落盘数据；
+**4. 唯一持久状态。** `saves/world/canon.json` 是旁白域的全部落盘数据；
 对话日志、人物快照、好感度都在各自的目录里，互不相扰。
 
 ---

@@ -5,11 +5,12 @@ extends RefCounted
 ##   作者导入（每次启动从设定资料重建，是锚：不可被生成物覆盖）
 ##   玩家实体（id="player"，无知识库无记忆，只作"关于玩家的公开事实"的挂靠点）
 ##   动态生成（探索 discoveries → gen_ 前缀 id，游玩中诞生）
-## 持久化 user://world/entities.json 只存注册表投影（六公共字段）——
+## 持久化 saves/world/entities.json 只存注册表投影（六公共字段）——
 ## Person 的知识、Location 的 brief/npcs 由各自的存储负责，避免双写。
 
-const DIR := "user://world"
-const PATH := DIR + "/entities.json"
+static func path() -> String:
+	return GamePaths.entities_path()
+
 const PREFIX_GEN := "gen_"
 
 static var _entries: Dictionary = {}  # entity_id(String) → Entity（与各域持有的是同一批对象）
@@ -21,7 +22,7 @@ static func _ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
-	var data := JsonTool.read_json_file(PATH)
+	var data := JsonTool.read_json_file(path())
 	if data.is_empty():
 		return
 	var raw: Variant = data.get("entities", [])
@@ -35,11 +36,11 @@ static func _ensure_loaded() -> void:
 
 
 static func save() -> void:
-	DirAccess.make_dir_recursive_absolute(DIR)
+	DirAccess.make_dir_recursive_absolute(GamePaths.world_dir())
 	var arr: Array = []
 	for id in _entries:
 		arr.append((_entries[id] as Entity).to_registry_dict())
-	JsonTool.write_json_file(PATH, {"entities": arr})
+	JsonTool.write_json_file(path(), {"entities": arr})
 
 
 ## 作者实体导入（world_model_design §2.2）：以设定资料构造的模型对象为准
@@ -136,6 +137,30 @@ static func entities_of_type(type: int) -> Array[Entity]:
 		if e.type == type and e.status == Entity.EntityStatus.ACTIVE:
 			out.append(e)
 	return out
+
+
+## 当前动态生成（gen_ 前缀）实体总数（生成上限闸门用）。
+static func gen_count() -> int:
+	_ensure_loaded()
+	var count := 0
+	for id in _entries:
+		if str(id).begins_with(PREFIX_GEN):
+			count += 1
+	return count
+
+
+## 移除全部动态生成条目（"清除动态生成内容"入口）并落盘。返回移除数。
+static func remove_gen_entries() -> int:
+	_ensure_loaded()
+	var victims: Array[String] = []
+	for id in _entries:
+		if str(id).begins_with(PREFIX_GEN):
+			victims.append(str(id))
+	for id in victims:
+		_entries.erase(id)
+	if not victims.is_empty():
+		save()
+	return victims.size()
 
 
 ## 清空全部内存状态（测试用；不删磁盘文件）。

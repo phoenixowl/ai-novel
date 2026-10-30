@@ -7,14 +7,13 @@ extends RefCounted
 ##                     npc 在场闭集钳制、facts.declare 申报、dialogue.end 强制收场）；
 ##                     旧版 npc/speech/facts 顶层字段仍兼容解析（工具调用优先）。
 ##   validate_facts  —— 事实提取 agent 输出：facts 数组（新事实开放 + 改写闭集引用；
-##                     ref 必须在注入的正典编号闭集内，越界降级为新事实）+
-##                     confirmed 数组（临时事实点名保留，闭集校验，越界忽略）。
+##                     ref 必须在注入的正典编号闭集内，越界降级为新事实）。
 ## 非法与缺失字段给安全默认值，坏项丢弃不报错。
 
 
 const OUTCOMES := ["success", "partial", "failure", "pending"]
 const ROUTES := ["action", "speech", "mixed", "reject"]
-const WEIGHTS := ["major", "minor"]
+const WEIGHTS := CanonFact.WEIGHT_KEYS  # major/minor 的唯一来源在 Models 层事实条目
 
 ## 校验 DM 裁决输出（统一入口的第一站）。
 ## data：提取好的 JSON Dictionary；present：在场人物 id 集合（闭集）；
@@ -148,38 +147,12 @@ static func _parse_declared_facts(data: Dictionary, notes: Array[String]) -> Arr
 
 
 ## 校验事实提取 agent 输出。data：提取好的 JSON Dictionary；pack_ids：本次注入的
-## 正典编号集合（supersede 与 confirmed 的闭集）；strict_canon：正典门槛=严格时丢弃
-## minor 新事实。
-## 返回 {ok, notes[], facts: Array[Dictionary]{ref, content, weight, source},
-## confirmed: Array[int]（点名保留的临时事实编号——闭集内有效，去重）}。
+## 正典编号集合（supersede 的闭集）；strict_canon：正典门槛=严格时丢弃 minor 新事实。
+## 返回 {ok, notes[], facts: Array[Dictionary]{ref, content, weight, source}}。
 static func validate_facts(data: Dictionary, pack_ids: Dictionary, strict_canon := false) -> Dictionary:
 	var notes: Array[String] = []
 	var facts := _parse_facts(data, pack_ids, strict_canon, notes)
-	var confirmed := _parse_confirmed(data, pack_ids, notes)
-	return {"ok": true, "notes": notes, "facts": facts, "confirmed": confirmed}
-
-
-## 解析 confirmed 数组（临时事实点名保留）：逐项取整数编号，非数字或不在注入闭集内
-## 的忽略并记 notes；缺失/非数组返回空。
-static func _parse_confirmed(data: Dictionary, pack_ids: Dictionary, notes: Array[String]) -> Array[int]:
-	var out: Array[int] = []
-	var raw: Variant = JsonTool.pick(data, ["confirmed", "保留"], null)
-	if raw == null:
-		return out
-	if not (raw is Array):
-		notes.append("confirmed 不是数组，已忽略。")
-		return out
-	for item in raw:
-		if not (item is float or item is int):
-			notes.append("confirmed 含非数字项，已忽略。")
-			continue
-		var id := int(item)
-		if not pack_ids.has(id):
-			notes.append("confirmed 点名的编号 [%d] 不在本轮正典内，已忽略。" % id)
-			continue
-		if not out.has(id):
-			out.append(id)
-	return out
+	return {"ok": true, "notes": notes, "facts": facts}
 
 
 ## 解析 facts 数组：每项 {ref(int), content(str), weight(major|minor), adopted_from_player(bool)}。

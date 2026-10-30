@@ -1,9 +1,9 @@
 extends Control
-## AuthorTool 外壳屏（Scripts/Authortool/）：设定编辑页——左侧子页导航（六页单选），
+## AuthorTool 外壳屏（Scripts/Authortool/）：设定编辑页——左侧子页导航（七页单选），
 ## 右侧内容区切换；底部「重新载入草稿（确认，丢弃未导出修改）」与「一键导出」。
-## 草稿（AuthortoolDraft）是唯一编辑对象：装载自 res://settings + 运行时正典 + 风格旋钮；
-## 导出（AuthortoolExporter）是唯一写出动作，落 user://authortool_export/<时间戳>/，
-## 不触碰 res://settings 与 user:// 其它目录。与 EventBus 的交互只有导航（UiEvents）。
+## 草稿（AuthortoolDraft）是唯一编辑对象：装载自 settings/（初始世界观）+ 运行时正典 + 风格旋钮；
+## 导出（AuthortoolExporter）是唯一写出动作，落 export/<时间戳>/，
+## 不触碰 settings/ 与 saves/。与 EventBus 的交互只有导航（UiEvents）。
 
 
 @onready var status_label: Label = %StatusLabel
@@ -25,7 +25,7 @@ func _ready() -> void:
 	_load_draft()
 
 
-## 六个子页：标题 → 页面类（同一目录，authortool_ 前缀）。
+## 七个子页：标题 → 页面类（同一目录，authortool_ 前缀）。
 func _build_pages() -> void:
 	var defs := [
 		{"title": "世界观", "page": AuthortoolWorldPage.new()},
@@ -33,6 +33,7 @@ func _build_pages() -> void:
 		{"title": "人物", "page": AuthortoolCharactersPage.new()},
 		{"title": "场景", "page": AuthortoolScenesPage.new()},
 		{"title": "事实库", "page": AuthortoolFactsPage.new()},
+		{"title": "玩家状态", "page": AuthortoolPlayerStatePage.new()},
 		{"title": "风格", "page": AuthortoolStylePage.new()},
 	]
 	var group := ButtonGroup.new()
@@ -56,7 +57,7 @@ func _build_pages() -> void:
 
 func _build_reload_confirm() -> void:
 	_reload_confirm = ConfirmationDialog.new()
-	_reload_confirm.dialog_text = "重新装载将丢弃当前草稿的全部未导出修改。\n（来源：res://settings + 运行时正典 + 风格旋钮）"
+	_reload_confirm.dialog_text = "重新装载将丢弃当前草稿的全部未导出修改。\n（来源：settings/ + 运行时正典 + 风格旋钮）"
 	_reload_confirm.ok_button_text = "重新装载"
 	_reload_confirm.confirmed.connect(func(): _load_draft())
 	add_child(_reload_confirm)

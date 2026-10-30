@@ -87,9 +87,31 @@ func _ready() -> void:
 	_dialogue.memory_reset.connect(_on_memory_reset)
 	_dialogue.affinity_changed.connect(_on_affinity_changed)
 	_llm.mode_changed.connect(_on_llm_mode_changed)
+	# 生成域：阶段进度与结果提示（GenEvents 集线器）
+	var gen_events := EventBus.resolve().hub(GenEvents) as GenEvents
+	gen_events.generation_started.connect(func(_kind: String): _append_system_line("◆ 世界正在回应这个发现……"))
+	gen_events.generation_stage.connect(func(stage: String):
+		status_label.text = "%s · %s" % [_dm_state_name, stage])
+	gen_events.generation_finished.connect(_on_generation_finished)
 	_nav.navigate_requested.connect(_on_navigate_requested)
 	_nav.dialogue_requested.connect(_on_dialogue_requested)
 	_dm.cmd_get_state.emit()  # 控制器常驻 WAITING_PLAYER：初始广播早于本屏就绪，补拉
+	_build_player_state_window()
+
+
+## 玩家状态悬浮窗：默认停靠右上（标题栏下方），可拖动、可展开；头栏"状态窗"开关显隐。
+func _build_player_state_window() -> void:
+	var window := PlayerStateWindow.new()
+	window.name = "PlayerStateWindow"
+	add_child(window)
+	window.position = Vector2(size.x - 324, 56)  # 停靠右上：窗宽约 300 + 边距
+
+
+## 「状态窗」按钮：切换玩家状态悬浮窗显隐。
+func _on_player_state_btn_toggled(pressed: bool) -> void:
+	var window := get_node_or_null("PlayerStateWindow")
+	if window != null:
+		window.visible = pressed
 
 
 ## 挂载事实库浏览器为调试侧栏①页（代码构建；订阅 canon_listed、发编辑命令均自理）。
@@ -352,6 +374,17 @@ func _on_end_talk_pressed() -> void:
 	_dialogue.cmd_settle_now.emit()
 
 
+## 生成结束（含清除反馈）：系统行展示结果；状态栏回到 DM 状态机快照。
+func _on_generation_finished(_kind: String, _ok: bool, message: String) -> void:
+	_append_system_line("◆ " + message)
+	status_label.text = "%s · 回合 %d" % [_dm_state_name, _dm_turn]
+
+
+## 「清除生成内容」按钮：经 GenEvents 命令一键清除全部动态生成内容（调试入口）。
+func _on_clear_gen_pressed() -> void:
+	(EventBus.resolve().hub(GenEvents) as GenEvents).cmd_clear_generated.emit()
+
+
 ## 「重置记忆」按钮：清空当前交谈对象的知识日志与记忆（回落卡面初始状态）。
 ## 引擎侧要求对话进行中（current_person 存在），门控与「结束交谈」一致。
 func _on_reset_memory_pressed() -> void:
@@ -397,6 +430,10 @@ func _append_bubble(event: Dictionary) -> void:
 			view.pop()
 			view.pop()
 			view.add_text(" " + str(e.get("text", "")))
+		"fact_declared":
+			view.push_color(COLOR_SYSTEM)
+			view.add_text("· 已申报（待结算确认）：%s" % str(e.get("content", "")))
+			view.pop()
 		"narration_turn":
 			var outcome := str(e.get("outcome", ""))
 			view.push_color(COLOR_OUTCOME)
@@ -504,6 +541,13 @@ func _append_bubble(event: Dictionary) -> void:
 			view.add_text(" " + str(e.get("reason", "")))
 		"fallback_used":
 			_system_line(view, "（保底回应触发：%s）" % str(e.get("reason", "")))
+		"player_state_changed":
+			view.push_color(COLOR_SYSTEM)
+			view.add_text("· 你的状态变了：%s" % str(e.get("summary", "")))
+			view.pop()
+		_:
+			view.queue_free()  # 未识别的事件不产生空气泡（世界流水/审计仍留痕）
+			return
 
 	log_box.add_child(view)
 	_scroll_to_bottom.call_deferred()
@@ -520,6 +564,16 @@ func _append_rejection_bubble(reason: String) -> void:
 	view.add_text(" " + reason)
 	view.push_color(COLOR_SYSTEM)
 	view.add_text(" 只接受世界内的行动与话语。")
+	view.pop()
+	log_box.add_child(view)
+	_scroll_to_bottom.call_deferred()
+
+
+## 追加一条系统提示气泡（世界外提示：生成进度/结果/清理反馈）。
+func _append_system_line(text: String) -> void:
+	var view := _new_bubble()
+	view.push_color(COLOR_SYSTEM)
+	view.add_text(text)
 	view.pop()
 	log_box.add_child(view)
 	_scroll_to_bottom.call_deferred()
@@ -572,7 +626,7 @@ func _scroll_to_bottom() -> void:
 # ============================================================
 
 
-## 组装④页「DM 裁决」详情：路由/目标/行动叙述/话语/notes/原始输出。
+## 组装④页「DM 裁决」详情：路由/目标/行动叙述/话语/工具调用/notes/原始输出。
 func _format_dm_result(r: Dictionary) -> String:
 	var p: Array[String] = []
 	p.append("[color=#90be6d][b]■ DM 裁决[/b][/color]")
@@ -580,6 +634,8 @@ func _format_dm_result(r: Dictionary) -> String:
 	p.append("· 路由：[color=#90be6d]%s[/color]%s" % [
 		str(r.get("route", "")),
 		"  → [%s] %s" % [npc_id, EntityRegistry.display_name(npc_id)] if not npc_id.is_empty() else ""])
+	if bool(r.get("settle", false)):
+		p.append("· [color=#e9c46a]请求强制收场（dialogue.end）[/color]")
 	p.append("")
 	if not str(r.get("action", "")).is_empty():
 		p.append("[b]行动部分[/b]")
@@ -592,6 +648,7 @@ func _format_dm_result(r: Dictionary) -> String:
 		p.append("")
 		p.append("[b]交给 NPC 的话[/b]")
 		p.append(_bb_escape(str(r.get("speech", ""))))
+	_append_tool_calls(p, r)
 	if not str(r.get("reason", "")).is_empty():
 		p.append("")
 		p.append("[color=#e76f51][b]拒绝理由[/b][/color]：" + _bb_escape(str(r.get("reason", ""))))
@@ -635,6 +692,13 @@ func _format_dialogue_response(r: Dictionary) -> String:
 		p.append("[b]■ 发言[/b]")
 		var utterance := str(r.get("utterance", ""))
 		p.append(_bb_escape(utterance) if not utterance.is_empty() else "[i]（空：选择了沉默）[/i]")
+		var affinity_delta := int(r.get("affinity_change", 0))
+		if affinity_delta != 0:
+			p.append("")
+			p.append("[b]■ 好感度变化[/b]")
+			p.append("· %s%d（经 affinity.change 工具，落盘生效）" % [
+				"+" if affinity_delta > 0 else "", affinity_delta])
+		_append_tool_calls(p, r)
 		p.append("")
 		p.append("[b]■ 内心想法（仅调试，不入记录）[/b]")
 		var inner := str(r.get("inner_thought", ""))
@@ -661,6 +725,19 @@ func _format_dialogue_response(r: Dictionary) -> String:
 # ============================================================
 #  小工具
 # ============================================================
+
+
+## ④页「工具调用」段：逐个列出工具名与参数（未发起调用不显示本段）。
+func _append_tool_calls(p: Array[String], r: Dictionary) -> void:
+	var calls: Array = r.get("tool_calls", [])
+	if calls.is_empty():
+		return
+	p.append("")
+	p.append("[b]■ 工具调用（%d 个）[/b]" % calls.size())
+	for item in calls:
+		var d := item as Dictionary
+		p.append("· [color=#90be6d]%s[/color]  %s" % [
+			str(d.get("tool", "")), _bb_escape(JSON.stringify(d.get("args", {})))])
 
 
 ## BBCode 字面转义：模型输出中的 [ ] 不应被当作标签解析。

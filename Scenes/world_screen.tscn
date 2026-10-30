@@ -1,4 +1,4 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://Scripts/UI/world_screen.gd" id="1_world_ui"]
 
@@ -8,6 +8,22 @@ content_margin_top = 10.0
 content_margin_right = 12.0
 content_margin_bottom = 10.0
 bg_color = Color(0.121569, 0.12549, 0.160784, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.227451, 0.231373, 0.290196, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_drawer"]
+content_margin_left = 8.0
+content_margin_top = 6.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.0980392, 0.101961, 0.129412, 0.98)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -69,6 +85,14 @@ unique_name_in_owner = true
 layout_mode = 2
 toggle_mode = true
 text = "调试侧栏"
+
+[node name="PlayerStateBtn" type="Button" parent="RootMargin/RootBox/HeaderBox"]
+unique_name_in_owner = true
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+tooltip_text = "显示/隐藏玩家状态悬浮窗（可拖动、可展开）"
+text = "状态窗"
 
 [node name="Spring" type="Control" parent="RootMargin/RootBox/HeaderBox"]
 layout_mode = 2
@@ -148,15 +172,29 @@ layout_mode = 2
 tooltip_text = "清空当前交谈对象的知识日志与记忆，回落人物卡初始状态（不影响人设与好感度）"
 text = "重置记忆"
 
-[node name="DebugSidebar" type="TabContainer" parent="RootMargin/RootBox/Split"]
+[node name="ClearGenBtn" type="Button" parent="RootMargin/RootBox/Split/WorldPanel/WorldBox/InputRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "清除全部动态生成的地点/人物/组织（只清理运行期生成内容，不影响作者设定）"
+text = "清除生成"
+
+[node name="DebugSidebar" type="TabContainer" parent="."]
 unique_name_in_owner = true
 visible = false
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-custom_minimum_size = Vector2(620, 0)
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -656.0
+offset_top = 50.0
+offset_right = -12.0
+offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_drawer")
 
-[node name="PackView" type="RichTextLabel" parent="RootMargin/RootBox/Split/DebugSidebar"]
+[node name="PackView" type="RichTextLabel" parent="DebugSidebar"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -165,26 +203,26 @@ bbcode_enabled = true
 scroll_following = true
 text = "（发送一个行动后，这里显示本回合组装的材料包）"
 
-[node name="PromptBox" type="VBoxContainer" parent="RootMargin/RootBox/Split/DebugSidebar"]
+[node name="PromptBox" type="VBoxContainer" parent="DebugSidebar"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="PromptHeader" type="HBoxContainer" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
+[node name="PromptHeader" type="HBoxContainer" parent="DebugSidebar/PromptBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="PromptTitle" type="Label" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/PromptHeader"]
+[node name="PromptTitle" type="Label" parent="DebugSidebar/PromptBox/PromptHeader"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.552941, 0.6, 0.682353, 1)
 text = "完整提示词（System 静态规则层 + User 本回合材料层）"
 
-[node name="CopyPromptBtn" type="Button" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox/PromptHeader"]
+[node name="CopyPromptBtn" type="Button" parent="DebugSidebar/PromptBox/PromptHeader"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "复制完整提示词"
 
-[node name="PromptFullView" type="RichTextLabel" parent="RootMargin/RootBox/Split/DebugSidebar/PromptBox"]
+[node name="PromptFullView" type="RichTextLabel" parent="DebugSidebar/PromptBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -193,7 +231,7 @@ bbcode_enabled = true
 scroll_following = true
 text = "（等待第一个回合）"
 
-[node name="ResponseView" type="RichTextLabel" parent="RootMargin/RootBox/Split/DebugSidebar"]
+[node name="ResponseView" type="RichTextLabel" parent="DebugSidebar"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -204,9 +242,11 @@ text = "（等待模型回应）"
 
 [connection signal="pressed" from="RootMargin/RootBox/HeaderBox/BackBtn" to="." method="_on_back_pressed"]
 [connection signal="toggled" from="RootMargin/RootBox/HeaderBox/SidebarBtn" to="." method="_on_sidebar_toggled"]
+[connection signal="toggled" from="RootMargin/RootBox/HeaderBox/PlayerStateBtn" to="." method="_on_player_state_btn_toggled"]
 [connection signal="text_submitted" from="RootMargin/RootBox/Split/WorldPanel/WorldBox/InputRow/ActionInput" to="." method="_on_input_submitted"]
 [connection signal="pressed" from="RootMargin/RootBox/Split/WorldPanel/WorldBox/InputRow/SendBtn" to="." method="_on_send_pressed"]
 [connection signal="pressed" from="RootMargin/RootBox/Split/WorldPanel/WorldBox/InputRow/SettleBtn" to="." method="_on_settle_pressed"]
 [connection signal="pressed" from="RootMargin/RootBox/Split/WorldPanel/WorldBox/InputRow/EndTalkBtn" to="." method="_on_end_talk_pressed"]
 [connection signal="pressed" from="RootMargin/RootBox/Split/WorldPanel/WorldBox/InputRow/ResetMemBtn" to="." method="_on_reset_memory_pressed"]
-[connection signal="pressed" from="RootMargin/RootBox/Split/DebugSidebar/PromptBox/PromptHeader/CopyPromptBtn" to="." method="_copy_prompt"]
+[connection signal="pressed" from="RootMargin/RootBox/Split/WorldPanel/WorldBox/InputRow/ClearGenBtn" to="." method="_on_clear_gen_pressed"]
+[connection signal="pressed" from="DebugSidebar/PromptBox/PromptHeader/CopyPromptBtn" to="." method="_copy_prompt"]

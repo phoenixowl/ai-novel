@@ -18,7 +18,8 @@ var knowledge_entries: Array[KnowledgeEntry] = []  # 信念层（含 stale，由
 var world_facts: Array[CanonFact] = []  # 检索注入的世界事实（对正典只读）
 var player_info := {}  # 玩家信息 {name, identity, appearance}
 var cross_dialogue_summary := ""  # 背景摘要（作者写的跨对话记忆，可为空）
-var world_context: Array[String] = []  # 此刻之前发生了什么（叙述域近期事件；统一入口的共享上下文）
+var world_context: Array[String] = []  # 此刻之前这里发生了什么（当前地点的叙述域事件；NPC 视角渲染）
+var player_public_state: Array[String] = []  # 对方的公开状态（状态模板 npc_visible 条目集；默认空）
 var session_lines: Array[String] = []  # 最近会话记忆
 var dialogue_history: Array = []  # 本段对话已确认轮次的事件（Dictionary 列表）
 var npc_state := {}  # tone / affinity（好感度经提示词与调试页同构渲染）
@@ -39,6 +40,23 @@ static func history_line(event: Dictionary) -> String:
 		"npc_silence":
 			return "[%s·沉默] %s" % [event.get("npc_name", "NPC"), event.get("description", "")]
 	return ""  # 过程事件（dialogue_started/belief_updated/…）不占行数——与 DMPack.history_line 同契约
+
+
+## 把一条叙述域事件渲染成 NPC 视角的见证行（材料包"此刻之前这里发生了什么"用）。
+## player_name：玩家称呼——只替换句首标记说话者的“你”（旁白对玩家的第二人称口吻）；
+## 引语与后文的“你”各有所指，保持原样（提示词材料层有说明行）。
+static func witness_line(event: Dictionary, player_name: String) -> String:
+	match str(event.get("event", "")):
+		"player_action":
+			return "[%s·行动] %s" % [player_name, event.get("text", "")]
+		"narration_turn":
+			var text := str(event.get("text", ""))
+			if text.begins_with("你"):
+				text = player_name + text.substr(1)
+			return "[旁白·%s] %s" % [event.get("outcome", ""), text]
+		"location_travelled":
+			return "%s来到了%s" % [player_name, event.get("name", "")]
+	return ""  # 其余过程事件（scene_described/事实入典/…）不占行数
 
 
 ## 调试面板（UI ②材料包页）的展示文本。
@@ -79,7 +97,7 @@ func to_display_text() -> String:
 				f.id, CanonFact.source_to_key(f.source), CanonFact.weight_to_key(f.weight), f.content])
 	p.append("")
 	if not world_context.is_empty():
-		p.append("[b]■ 此刻之前发生了什么（你亲眼所见）[/b]")
+		p.append("[b]■ 此刻之前这里发生了什么（你亲眼所见）[/b]")
 		for line in world_context:
 			p.append("· " + line)
 		p.append("")

@@ -138,7 +138,7 @@ func _on_back_pressed() -> void:
 
 
 ## 「保存 API 设置并应用」：把表单中的 Key/模型/输出上限经命令信号发给 LLM 服务
-##（保存到 user://config.cfg 并重建客户端），状态标签反馈结果。
+##（保存到 saves/config.cfg 并重建客户端），状态标签反馈结果。
 func _on_settings_save_pressed() -> void:
 	_llm.cmd_set_config.emit(api_key_edit.text, _selected_model(), int(max_tokens_spin.value))
 	api_test_label.add_theme_color_override("font_color", COLOR_OK)

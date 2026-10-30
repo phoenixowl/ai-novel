@@ -1,7 +1,7 @@
 class_name LoreRepository
 extends RefCounted
 ## 设定资料库（Characters 层）：【流程一：设定资料】
-## 从固定目录 res://settings/ 加载作者手动放置的设定（全部只读）：
+## 从初始世界观目录 settings/ 加载设定（exe 同目录；开发期=项目 settings/）：
 ##   worldview.txt      世界观（纯文本，整段注入提示词静态层）
 ##   mainline.txt       主线基调（模糊方向感，可为空；旁白与对话静态层共用）
 ##   canon.json         作者正典（由 CanonStore 播种，本类不读）
@@ -18,8 +18,8 @@ extends RefCounted
 ## 其余域的处理器不必（也不应）各自重载。
 
 
-const SETTING_ROOT := "res://settings"
-const FACTIONS_FILE := SETTING_ROOT + "/factions.json"
+static var SETTING_ROOT := GamePaths.settings_dir()
+static var FACTIONS_FILE := SETTING_ROOT + "/factions.json"
 
 static var _shared: LoreRepository
 
@@ -68,6 +68,7 @@ func load_all() -> bool:
 	_load_player()
 
 	_load_factions()
+	_load_gen_factions()
 	_load_characters()
 	_load_gen_characters()
 	_apply_persona_snapshots()
@@ -83,14 +84,14 @@ func load_all() -> bool:
 	return ok
 
 
-## 加载玩家模型：先取 res://settings/player.json（作者默认），再叠加 user://player.json（运行时修改）。
+## 加载玩家模型：先取 settings/player.json（初始世界观），再叠加 saves/player.json（运行时修改）。
 func _load_player() -> void:
 	var data := JsonTool.read_json_file(SETTING_ROOT + "/player.json")
 	if not data.is_empty():
 		player = Person.from_card_dict(data, true)
 	else:
 		player = Person.from_card_dict({"id": "player", "name": "来客"}, true)
-	var override := JsonTool.read_json_file("user://player.json")
+	var override := JsonTool.read_json_file(GamePaths.player_card_path())
 	if not override.is_empty():
 		if override.has("name"):
 			player.canonical_name = str(override["name"])
@@ -209,7 +210,7 @@ func _load_characters() -> void:
 ## 合并动态生成的人物卡（world_model_design §3.6）：gen_ 前缀的运行时快照 persona 区
 ## 即卡面（discoveries 落地时写入）。作者卡优先——同 id 不可能（gen_ 前缀独占）。
 func _load_gen_characters() -> void:
-	var dir := DirAccess.open("user://characters")
+	var dir := DirAccess.open(GamePaths.characters_dir())
 	if dir == null:
 		return
 	dir.list_dir_begin()
@@ -225,6 +226,9 @@ func _load_gen_characters() -> void:
 				person.canonical_name = str(persona["name"])
 				person.identity = str(persona.get("identity", ""))
 				person.profile = str(persona.get("profile", ""))
+				for fid in JsonTool.pick_strings(persona, ["factions"]):
+					if not person.faction_ids.has(fid):
+						person.faction_ids.append(fid)
 				characters[npc_id] = person
 		file_name = dir.get_next()
 	dir.list_dir_end()
@@ -254,6 +258,25 @@ func _load_factions() -> void:
 		factions[faction.entity_id] = faction
 		count += 1
 	load_report.append("组织：加载 %d 个" % count)
+
+
+## 合并动态生成的组织（saves/world/gen_factions.json，Gen 域的唯一写入口）——
+## 与作者组织同等对待（作者 id 优先，不覆盖）。
+func _load_gen_factions() -> void:
+	var count := 0
+	for raw in GenFactionStore.all():
+		if not (raw is Dictionary):
+			continue
+		var entry: Dictionary = raw
+		var id := str(entry.get("id", ""))
+		if id.is_empty() or factions.has(id):
+			continue
+		var faction := Faction.from_faction_dict(entry)
+		faction.source = Entity.EntitySource.GEN
+		factions[id] = faction
+		count += 1
+	if count > 0:
+		load_report.append("动态组织：合并 %d 个" % count)
 
 
 ## 应用人物快照的 persona 区（字段级覆盖：快照有该键才接管，缺失跟随作者卡面）。

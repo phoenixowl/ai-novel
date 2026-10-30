@@ -21,6 +21,9 @@ func _run() -> void:
 	var failures := 0
 	print("==== 引擎回路测试 ====")
 
+	# 设定目录确定性：工厂重置 user://settings（从内置模板重新播种）
+	TestUtil.reset_runtime()
+
 	# 测试环境兜底创建总线与 LLM 服务（正常运行由 autoload 提供），
 	# 强制离线：不读取已保存的 API Key，不产生真实调用。
 	EventBus.create_shared()
@@ -40,8 +43,8 @@ func _run() -> void:
 
 	# 清掉可能残留的温叙运行时档案（保证断言确定性）
 	TestUtil.clear_gen_characters()
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/wen_xu.json")
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/wen_xu.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/journals/wen_xu.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/characters/wen_xu.json")
 
 	# 经总线连接集线器信号（与 UI 同一路径）
 	var ev := bus.hub(DialogueEvents) as DialogueEvents
@@ -109,7 +112,7 @@ func _run() -> void:
 			break
 		await create_timer(0.3).timeout
 	failures = TestUtil.check(engine.current_person.memory_count() >= 1, "结算后记忆已生成", failures)
-	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/characters/wen_xu.json"), "知识日志已持久化（人物快照）", failures)
+	failures = TestUtil.check(FileAccess.file_exists(GamePaths.save_dir() + "/characters/wen_xu.json"), "知识日志已持久化（人物快照）", failures)
 
 	# 结束后不可续聊
 	ev.cmd_submit.emit("等等，我还有话没说完")
@@ -147,7 +150,8 @@ func _run() -> void:
 	ce.characters_listed.connect(func(items: Array): holder["listed"] = items)
 	ce.character_loaded.connect(func(d: Dictionary): holder["detail"] = d)
 	ce.cmd_get_characters.emit()
-	failures = TestUtil.check((holder["listed"] as Array).size() == 18, "人物总览：玩家 + 17 NPC", failures)
+	failures = TestUtil.check((holder["listed"] as Array).size() == 18,
+		"人物总览：玩家 + 17 NPC（实际 %d）" % (holder["listed"] as Array).size(), failures)
 	ce.cmd_get_character.emit("wen_xu")
 	var detail := holder["detail"] as Dictionary
 	failures = TestUtil.check(str(detail.get("kind", "")) == "npc", "人物详情返回 NPC", failures)
@@ -177,9 +181,9 @@ func _run() -> void:
 
 	# 清理测试产生的运行时档案
 	TestUtil.clear_gen_characters()
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/journals/wen_xu.json")
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/wen_xu.json")
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/affinity/wen_xu.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/journals/wen_xu.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/characters/wen_xu.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/affinity/wen_xu.json")
 
 	if failures == 0:
 		print("==== 全部通过 ====")

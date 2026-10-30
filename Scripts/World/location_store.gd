@@ -5,9 +5,10 @@ extends RefCounted
 ## 作者场景卡导入为初始节点：links 声明邻接，未声明 links 的场景默认连通到第一个场景（防死锁）；
 ## 首次进入的进场描述由旁白生成后冻结为 brief（§3.3），再次进入零延迟零调用。
 ## 移动零模型参与（引擎校验邻接即达）。
-## 持久化 user://world/locations.json（节点只序列化 brief/npcs 等运行期字段）。
+## 持久化 saves/world/locations.json（节点只序列化 brief/npcs 等运行期字段）。
 
-const PATH := "user://world/locations.json"
+static func path() -> String:
+	return GamePaths.locations_path()
 
 static var _locations: Dictionary = {}  # entity_id(String) → Location（与注册表同对象）
 static var _edges: Array = []           # [{a, b}] 无向
@@ -20,7 +21,7 @@ static func _ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
-	var data := JsonTool.read_json_file(PATH)
+	var data := JsonTool.read_json_file(path())
 	if data.is_empty():
 		return
 	var raw_locations: Variant = data.get("locations", [])
@@ -39,11 +40,11 @@ static func _ensure_loaded() -> void:
 
 
 static func save() -> void:
-	DirAccess.make_dir_recursive_absolute("user://world")
+	DirAccess.make_dir_recursive_absolute(GamePaths.world_dir())
 	var arr: Array = []
 	for id in _locations:
 		arr.append((_locations[id] as Location).to_node_dict())
-	JsonTool.write_json_file(PATH, {"locations": arr, "edges": _edges, "current": _current})
+	JsonTool.write_json_file(path(), {"locations": arr, "edges": _edges, "current": _current})
 
 
 ## 作者场景导入（world_model_design §3.1）：幂等——已有节点保留 brief 与 npcs，
@@ -192,6 +193,33 @@ static func reset_for_test() -> void:
 	_edges = []
 	_current = ""
 	_loaded = true
+
+
+## 移除全部动态生成的地点节点及其邻接边（"清除动态生成内容"入口）并落盘。
+## 当前位置若是 gen 地点，回落到首个作者场景。
+static func remove_gen_locations() -> void:
+	_ensure_loaded()
+	var victims: Array[String] = []
+	for id in _locations:
+		if id.begins_with(EntityRegistry.PREFIX_GEN):
+			victims.append(id)
+	for id in victims:
+		_locations.erase(id)
+	_edges = _edges.filter(_edge_is_author)
+	if _current.begins_with(EntityRegistry.PREFIX_GEN):
+		_current = ""
+		for id in _locations:
+			_current = id
+			break
+	if not victims.is_empty():
+		save()
+
+
+## 边过滤谓词：两端都不是 gen 地点（remove_gen_locations 用）。
+static func _edge_is_author(edge: Dictionary) -> bool:
+	var a_ok := not str(edge.get("a", "")).begins_with(EntityRegistry.PREFIX_GEN)
+	var b_ok := not str(edge.get("b", "")).begins_with(EntityRegistry.PREFIX_GEN)
+	return a_ok and b_ok
 
 
 static func _add_edge(a: String, b: String) -> void:

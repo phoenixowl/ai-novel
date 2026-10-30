@@ -177,7 +177,7 @@
 ### 7.1 条目结构
 
 每条事实：`编号 + 表述 + 来源 + 权重 + 状态（active / superseded）+ 确立时间 + 取代者编号`。
-持久化为世界运行时快照（`user://world/`），与人物快照同模式——
+持久化为世界运行时快照（`saves/world/`），与人物快照同模式——
 `res://settings/` 的作者设定永远只读，一切运行时变更写 user://。
 
 ### 7.2 三级来源与信任语义
@@ -349,7 +349,7 @@ superseded 的折叠显示），旁白轮次中材料包页展示 NarrationPack�
 | 旁白材料包（4） | `Scripts/Narration/narration_pack.gd` + `narration_pack_builder.gd` |
 | 提示词（5） | `Scripts/Narration/narration_prompt_builder.gd` |
 | 输出契约校验（6） | `Scripts/Narration/narration_parser.gd` |
-| 世界事实库（7、11.1） | `Scripts/Narration/canon_store.gd`（user://world/ 快照读写 + 回合快照链） |
+| 世界事实库（7、11.1） | `Scripts/Narration/canon_store.gd`（saves/world/ 快照读写 + 回合快照链） |
 | 玩家状态（8） | `Scripts/Narration/player_state_store.gd` |
 | 路由三分类（2） | `input_reviewer.gd` 扩展（或独立 `input_router.gd`） |
 | 双向桥（10） | DialogueController 结算点回写 + 材料包新增区块；NarrationController 的 `world_changed` 广播 |

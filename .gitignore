@@ -7,3 +7,5 @@
 
 # ZCode 会话产物
 .zcode/
+saves/
+export/

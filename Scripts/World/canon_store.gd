@@ -11,15 +11,23 @@ extends RefCounted
 ## 检索（world_model_design §6.1）：确定性评分——按作用域命中取条目，各作用域独立预算；
 ## 全局提要只取 major。注入配方由各材料包组装器决定，本类只提供取数口。
 ##
-## 持久化 user://world/canon.json；惰性加载：任何公开 API 首次调用时自动读盘并播种
+## 持久化 saves/world/canon.json；惰性加载：任何公开 API 首次调用时自动读盘并播种
 ## 作者正典（settings/canon.json）。对话域对本库只读（硬线②）。
 
 
-const DIR := "user://world"
-const PATH := DIR + "/canon.json"
-## 作者正典：世界客观真理的底座，惰性加载后播种进内存——establish 的精确文本去重
-## 保证幂等；浏览器删除的作者事实会在下次启动回来（res:// 是只读模板的锚语义）。
-const AUTHOR_CANON_PATH := "res://settings/canon.json"
+static func dir() -> String:
+	return GamePaths.world_dir()
+
+
+static func path() -> String:
+	return GamePaths.canon_path()
+
+
+## 作者正典（settings/canon.json——初始世界观，"重置事实库"以此为准）。
+static func author_canon_path() -> String:
+	return GamePaths.author_canon_path()
+
+
 ## 单作用域 minor 注入预算（major 全量注入；超出的次要事实只保留最近确立的）
 const SCOPE_BUDGET := 40
 ## 全局提要 minor 上限（major 全量注入；每条一行，跨地理边界生效的事实）
@@ -74,7 +82,7 @@ static func _ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
-	var data := JsonTool.read_json_file(PATH)
+	var data := JsonTool.read_json_file(path())
 	if not data.is_empty():
 		_next_id = maxi(1, int(data.get("next_id", 1)))
 		_embed_model = str(data.get("embedding_model", ""))
@@ -82,14 +90,18 @@ static func _ensure_loaded() -> void:
 		if raw_entries is Array:
 			for item in raw_entries:
 				if item is Dictionary:
-					_entries.append(CanonFact.from_dict(item))
+					var fact := CanonFact.from_dict(item)
+					if fact.status == CanonFact.FactStatus.PROVISIONAL:
+						continue  # 旧存档的临时申报不迁移——草稿不属于正典
+					_entries.append(fact)
 			_version += 1
 	_seed_authors()
 
 
 ## 作者正典播种：settings/canon.json 的世界事实 establish 进内存（去重幂等，不覆盖运行期事实）。
+## 条目可用 "visibility" 手标（law/public/local/secret）；缺省按作用域推导。
 static func _seed_authors() -> void:
-	var data := JsonTool.read_json_file(AUTHOR_CANON_PATH)
+	var data := JsonTool.read_json_file(author_canon_path())
 	for raw in data.get("facts", []):
 		if not (raw is Dictionary):
 			continue
@@ -100,15 +112,15 @@ static func _seed_authors() -> void:
 			for item in raw_scope:
 				scope_ids.append(str(item))
 		establish(str(d.get("content", "")), str(d.get("source", "narrator")),
-			str(d.get("weight", "minor")), scope_ids)
+			str(d.get("weight", "minor")), scope_ids, str(d.get("visibility", "")))
 
 
 static func save() -> void:
-	DirAccess.make_dir_recursive_absolute(DIR)
+	DirAccess.make_dir_recursive_absolute(dir())
 	var entries: Array = []
 	for fact in _entries:
 		entries.append(fact.to_dict())
-	JsonTool.write_json_file(PATH, {"next_id": _next_id, "embedding_model": _embed_model,
+	JsonTool.write_json_file(path(), {"next_id": _next_id, "embedding_model": _embed_model,
 		"entries": entries})
 
 
@@ -117,19 +129,17 @@ static func save() -> void:
 
 ## 确立一条新事实（精确文本去重：同表述的非取代条目直接复用）。返回条目 id。
 ## content：事实表述；source_key：narrator / player；weight_key：major / minor；
-## scope_ids：作用域实体 id 列表（空 = 全局）；provisional：true = DM 行动回合申报的
-## 临时事实（立即入典可检索，结算复核后转正）。确认性写入（结算/作者播种）逐字命中
-## 临时条目时顺带转正——重述即确认。
-static func establish(content: String, source_key: String, weight_key: String, scope_ids: Array = [], provisional := false) -> int:
+## scope_ids：作用域实体 id 列表（空 = 全局）；visibility_key：谁能知道
+## （law/public/local/secret；缺省按作用域推导——空作用域 PUBLIC、非空 LOCAL）。
+## 说明：DM 回合申报的"未定案变化"不再入正典（会话草稿见 SessionLedger）——
+## 正典只收结算确认与作者锚定的事实。
+static func establish(content: String, source_key: String, weight_key: String, scope_ids: Array = [], visibility_key := "") -> int:
 	_ensure_loaded()
 	var text := content.strip_edges()
 	if text.is_empty():
 		return 0
 	for fact in _entries:
 		if fact.status != CanonFact.FactStatus.SUPERSEDED and fact.content == text:
-			if not provisional and fact.status == CanonFact.FactStatus.PROVISIONAL:
-				fact.status = CanonFact.FactStatus.ACTIVE
-				_version += 1
 			return fact.id
 	var fact := CanonFact.new()
 	fact.id = _next_id
@@ -137,7 +147,9 @@ static func establish(content: String, source_key: String, weight_key: String, s
 	fact.content = text
 	fact.source = CanonFact.source_from_key(source_key)
 	fact.weight = CanonFact.weight_from_key(weight_key)
-	fact.status = CanonFact.FactStatus.PROVISIONAL if provisional else CanonFact.FactStatus.ACTIVE
+	fact.status = CanonFact.FactStatus.ACTIVE
+	var vis := CanonFact.visibility_from_key(visibility_key)
+	fact.visibility = vis if vis != -1 else CanonFact.visibility_default(not scope_ids.is_empty())
 	for scope_id in scope_ids:
 		var sid := str(scope_id).strip_edges()
 		if not sid.is_empty() and not fact.scope.has(sid):
@@ -178,30 +190,7 @@ static func find_by_content(content: String) -> int:
 	return 0
 
 
-## 结算复核收尾（点名制）：confirmed_ids 里的临时事实转正，其余临时条目移除——
-## 未被整理者点名的申报不进入永久正典（审计由调用方的事件流水承担）。
-## 返回 {confirmed: 转正数, discarded: 移除数}。
-static func settle_provisional(confirmed_ids: Array) -> Dictionary:
-	_ensure_loaded()
-	var wanted := {}
-	for id in confirmed_ids:
-		wanted[int(id)] = true
-	var confirmed := 0
-	var discarded := 0
-	for fact in _entries.duplicate():  # erase 会修改 _entries，遍历其快照
-		if fact.status != CanonFact.FactStatus.PROVISIONAL:
-			continue
-		if wanted.has(fact.id):
-			fact.status = CanonFact.FactStatus.ACTIVE
-			confirmed += 1
-		elif erase(fact.id):
-			discarded += 1
-	if confirmed > 0 or discarded > 0:
-		_version += 1
-	return {"confirmed": confirmed, "discarded": discarded}
-
-
-## 删除条目（事实库浏览器与结算移除未点名临时申报共用）：其余条目指向它的取代链置 0，
+## 删除条目（事实库浏览器共用）：其余条目指向它的取代链置 0，
 ## 不留悬空引用。注意：这是正典"只追加"哲学的例外，仅供引擎结算与作者/调试编辑入口调用。
 static func erase(id: int) -> bool:
 	_ensure_loaded()
@@ -331,8 +320,8 @@ static func reset_to_authors() -> int:
 	_entries = []
 	_next_id = 1
 	_loaded = true
-	if FileAccess.file_exists(PATH):
-		DirAccess.remove_absolute(PATH)
+	if FileAccess.file_exists(path()):
+		DirAccess.remove_absolute(path())
 	_seed_authors()
 	_version += 1
 	return _entries.size()

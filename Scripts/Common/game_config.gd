@@ -1,11 +1,13 @@
 class_name GameConfig
 extends RefCounted
-## 游戏行为设置（Common 层）：与模型无关的玩家可调开关，持久化到 user://config.cfg 的 [game] 节。
+## 游戏行为设置（Common 层）：与模型无关的玩家可调开关，持久化到 saves/config.cfg 的 [game] 节。
 ## 当前条目：旁白风格四旋钮（宽松/严格两档，只影响旁白提示词措辞与正典入库门槛，
 ## 不影响数据结构——设计文档 14 节）。
 
 
-const CONFIG_PATH := "user://config.cfg"
+static func config_path() -> String:
+	return GamePaths.config_path()
+
 const SECTION := "game"
 
 ## 风格旋钮定义表（键名/标签/选项/说明）——设置屏、AuthorTool 风格页与
@@ -32,7 +34,7 @@ var narration_threshold := "宽松"   # 正典门槛：minor 新事实是否入�
 ## （不叫 load()：避免遮蔽 GDScript 全局函数名）
 func load_from_disk() -> void:
 	var config := ConfigFile.new()
-	if config.load(CONFIG_PATH) != OK:
+	if config.load(config_path()) != OK:
 		return
 	narration_adoption = str(config.get_value(SECTION, "narration_adoption", "宽松"))
 	narration_verdict = str(config.get_value(SECTION, "narration_verdict", "宽松"))
@@ -43,9 +45,9 @@ func load_from_disk() -> void:
 ## 写回本机配置（仅 [game] 节；与 LLMConfig 共用同一文件的不同节）。
 func save_to_disk() -> void:
 	var config := ConfigFile.new()
-	config.load(CONFIG_PATH)  # 无文件时忽略，保留其它节
+	config.load(config_path())  # 无文件时忽略，保留其它节
 	config.set_value(SECTION, "narration_adoption", narration_adoption)
 	config.set_value(SECTION, "narration_verdict", narration_verdict)
 	config.set_value(SECTION, "narration_density", narration_density)
 	config.set_value(SECTION, "narration_threshold", narration_threshold)
-	config.save(CONFIG_PATH)
+	config.save(config_path())

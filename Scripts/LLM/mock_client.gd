@@ -1,8 +1,9 @@
 class_name MockClient
 extends LLMClient
 ## 离线示例客户端（LLM 层）：未配置 API Key 时由 LLMController 自动启用。
-## 按 purpose 区分请求类型（输入审查 / 对话生成 / 记忆提取），输出与真实模型完全相同的
-## JSON 回应格式，便于在无网络、无 Key 的环境下走通全部流程与界面。
+## 按 purpose 区分请求类型（DM 裁决 / 对话生成 / 记忆与知识提取 / 进场描述 / 事实提取），
+## 输出与真实模型完全相同的 JSON 回应格式（含 tool_calls 契约），便于在无网络、
+## 无 Key 的环境下走通全部流程与界面。
 ## 部分样本故意裹上 markdown 围栏，用于验证解析器的容错能力。
 
 
@@ -35,15 +36,42 @@ func complete(_system_prompt: String, user_prompt: String, purpose := PURPOSE_DI
 			"narration": "你放慢脚步走进这里。汲取器柱的低鸣贴着地面涌过来，暖黄的灯一盏接一盏在头顶亮起，把来路吞进暮色里。有人从你身边经过，没有回头——这地方见惯了生面孔。",
 		}), "error": ""}
 	if purpose == PURPOSE_FACT_EXTRACT:
-		# 样本只含状态变化（旧样本第二条"书房里积着厚厚的灰"是氛围描写，违背提取
-		# 规则本身，已移除）；confirmed 点名材料层里的全部临时条目，演示点名制复核
+		# 样本只含状态变化（氛围描写不提取——违背提取规则本身）
 		return {"ok": true, "content": JSON.stringify({
 			"facts": [
 				{"ref": 0, "content": "来客从货架上取走了一份报纸，夹在臂弯里", "weight": "minor", "adopted_from_player": true},
 				{"ref": 0, "content": "书架第三层藏有一本靛蓝封皮的薄册，扉页有前任主人的名字", "weight": "major", "adopted_from_player": false},
 			],
-			"confirmed": _provisional_ids_in(user_prompt),
 		}), "error": ""}
+	if purpose == PURPOSE_GEN_LOCATION:
+		return {"ok": true, "content": JSON.stringify({
+			"name": "断井巷", "aliases": ["断井"],
+			"brief": "你侧身挤进窄巷，两侧的砖墙湿得发黑，头顶的管线压得很低。巷子尽头，一口枯井被厚重的石板封死，石板上的封条已经褪成了灰白色。",
+			"environment": "窄巷，两侧是锈蚀管线与堆积的回收件；尽头一口封死的枯井",
+			"atmosphere": "潮气顺着砖缝渗出来，远处作坊的锤声在这里变得很闷",
+			"opening_situation": "你站在巷口，巷子深处黑得看不清底",
+			"facts": [{"content": "巷子尽头的枯井被石板封死，封条已褪色"}],
+			"inhabitants": [{"brief": "巷口补锅的老头，警惕生人"}],
+		}, "  "), "error": ""}
+	if purpose == PURPOSE_GEN_CHARACTER:
+		return {"ok": true, "content": _gen_character_sample(user_prompt), "error": ""}
+	if purpose == PURPOSE_GEN_FACTION:
+		return {"ok": true, "content": JSON.stringify({
+			"name": "灰烬会",
+			"description": "铜锈区新近冒出的互助会，表面替炉工讨薪，暗地里收留逃债的人；入会要烧掉一件旧物。",
+			"members": [
+				{"name": "贺松", "position": "供奉"},
+				{"name": "哑叔", "position": "管账"},
+			],
+		}, "  "), "error": ""}
+	if purpose == PURPOSE_GEN_AUDIT:
+		# 越权测试标记藏在草稿里 → revise（演示修订循环）；否则通过
+		if user_prompt.contains("越权测试"):
+			return {"ok": true, "content": JSON.stringify({
+				"verdict": "revise",
+				"issues": ["信息越权：人物的言谈超出了他身份该知道的范围，请收敛"],
+			}), "error": ""}
+		return {"ok": true, "content": JSON.stringify({"verdict": "pass", "issues": []}), "error": ""}
 	var turn := _turn_from_prompt(user_prompt)
 	var player_text := _player_text_from_prompt(user_prompt)
 	var sample := _pick_sample(player_text, turn)
@@ -109,8 +137,38 @@ func _dm_route_sample(user_prompt: String) -> String:
 		# 离线近似：行动落地即申报一条持久事实（演示临时事实通道；重复申报由引擎去重）
 		tool_calls.append({"tool": "facts.declare",
 			"args": {"content": "柜台那边刚刚有人翻动过东西", "weight": "minor"}})
+		# 离线近似：行动文本点名相邻地点时附带 world.travel（引擎侧仍校验邻接，成功才移动）
+		for nid in _ids_after(user_prompt, "■ 相邻地点"):
+			var e := EntityRegistry.entry(nid)
+			if e == null:
+				continue
+			var hit := not e.canonical_name.is_empty() and text.contains(e.canonical_name)
+			if not hit:
+				for alias in e.aliases:
+					if text.contains(alias):
+						hit = true
+						break
+			if hit:
+				tool_calls.append({"tool": "world.travel", "args": {"scene": nid}})
+				break
 	if (route == "speech" or route == "mixed") and not npc.is_empty():
 		tool_calls.append({"tool": "dialogue.start", "args": {"npc": npc, "speech": speech}})
+	# 离线近似：特定输入特征触发 world.discover（真实环境由 LLM 判断）
+	if text.contains("开过的门"):
+		tool_calls.append({"tool": "world.discover",
+			"args": {"kind": "character", "brief": "木门后独居的隐士，对外界警惕"}})
+	elif text.contains("新开的窄道"):
+		tool_calls.append({"tool": "world.discover",
+			"args": {"kind": "location", "brief": "巷尾新开的一条窄巷，没人说得清来历"}})
+	elif text.contains("探子"):
+		tool_calls.append({"tool": "world.discover",
+			"args": {"kind": "character", "brief": "打听消息的探子，知道得太多"}})
+	# 离线近似：买/收下类输入附带 player.state（演示模板驱动的状态变更；键以模板为准）
+	if text.contains("买") or text.contains("收下"):
+		tool_calls.append({"tool": "player.state", "args": {
+			"counters": {"crystal": -2},
+			"add": [{"collection": "items", "entry": {"name": "符文灯", "qty": 1, "note": "作坊街买的"}}],
+		}})
 	return JSON.stringify({
 		"route": route,
 		"action": action_part,
@@ -191,14 +249,51 @@ static func _first_quoted_in(text: String) -> String:
 	return rest.substr(0, end).strip_edges()
 
 
-## 从提取器材料层解析临时事实编号（离线演示 confirmed 点名制；真实环境由 LLM 裁决）。
-## 材料层行格式："· [id]（narrator · minor · 临时）内容"。
-static func _provisional_ids_in(user_prompt: String) -> Array:
-	var out: Array = []
-	var regex := RegEx.create_from_string("\\[(\\d+)\\]（[^）]*· 临时）")
-	for found in regex.search_all(user_prompt):
-		out.append(int(found.get_string(1)))
-	return out
+## 人物生成样本（离线）：名字按调用序取自名单（多次生成不撞名）；
+## 修订轮（提示词含问题清单）永远返回干净版；生成意图含"探子"时初稿带越权内容
+## （profile 藏"越权测试"标记给审核者抓，知识里混一条天穹台条目给引擎闭集抓——
+## 两条防线各演示一次）。
+const GEN_CHAR_NAMES := ["贺松", "贺青", "费三", "柳三变", "岳小满"]
+var _gen_char_seq := 0
+
+
+func _gen_character_sample(user_prompt: String) -> String:
+	var revision := user_prompt.contains("———— 修订 ————")
+	var brief := _text_after(user_prompt, "■ 生成意图：")
+	var leak := not revision and brief.contains("探子")
+	var name: String = GEN_CHAR_NAMES[_gen_char_seq % GEN_CHAR_NAMES.size()]
+	_gen_char_seq += 1
+	var profile := "沉默寡言，说话简短；手艺人脾气，见到精细符文就走不动路；提起白银廊的旧事就闭嘴。常态：门缝后的打量"
+	if leak:
+		profile += "，言谈间带着越权测试的腔调"
+	var knowledge: Array = [
+		{"ref": 1},
+		{"ref": 2},
+		{"content": "秦峙当年救过他一命", "basis": "亲历"},
+	]
+	if leak:
+		knowledge.append({"content": "他熟知天穹台的巡逻规律", "basis": "亲历"})
+	return JSON.stringify({
+		"name": name, "aliases": ["松老"],
+		"identity": "木门后独居的符文匠，对外界警惕",
+		"profile": profile,
+		"faction_ids": [],
+		"knowledge": knowledge,
+		"memories": ["门外的脚步声最近越来越多"],
+		"affinity": 0,
+	}, "  ")
+
+
+## 取锚点之后到行尾的文本（无引号形态——生成提示词的意图行不带引号）。
+static func _text_after(text: String, anchor: String) -> String:
+	var index := text.find(anchor)
+	if index == -1:
+		return ""
+	var rest := text.substr(index + anchor.length())
+	var line_end := rest.find("\n")
+	if line_end != -1:
+		rest = rest.substr(0, line_end)
+	return rest.strip_edges()
 
 
 # ———— 样本挑选 ————

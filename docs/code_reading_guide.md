@@ -31,6 +31,7 @@
 | `Characters` | `Scripts/Characters/character_controller.gd` | 人物运行时快照的读写入口（cmd_save/reset/write_back…） | 不参与对话流程 |
 | `DM` | `Scripts/DM/dm_controller.gd` | **DM**：统一入口裁决、行动叙述、探索结算 | 不读不写 NPC 信念（硬线①） |
 | `Dialogue` | `Scripts/Dialogue/dialogue_controller.gd` | NPC 对话回合状态机（12 轮上限） | 对正典只读（硬线②） |
+| `Gen` | `Scripts/Gen/gen_controller.gd` | 动态生成编排：三管线 + 审核修订循环（生成期间闸住玩家输入） | 不写 settings/；提示词/契约/落地在各 agent 类 |
 
 三条读代码时最有用的规则：
 
@@ -39,7 +40,7 @@
   （人物被编辑 → 两域各自重载设定资料）。
 - **静态 Store 是惰性的**。`CanonStore` / `EntityRegistry` / `LocationStore` / `WorldStream`
   （World 层）是静态类，任何公开 API 首次调用时自动读盘
-  （`user://world/*.json`）并播种作者正典——所以 autoload 初始化顺序不影响正确性。
+  （`saves/world/*.json`）并播种作者正典——所以 autoload 初始化顺序不影响正确性。
 - **模型输出永不直接改世界**。所有写入都收敛到少数几个引擎函数：
   `CanonStore.establish / supersede`、`Person.learn_entry / learn_ref / corroborate /
   contradict`、`AffinityStore.apply_change`。改世界 = 调这些函数，别绕过。
@@ -81,7 +82,7 @@ UI 内部的屏幕切换走 `Scripts/UI/ui_events.gd`（navigate_requested 等�
 | 世界流水 | 叙述事件 + 对话回声的单一混排数组，DM 上下文 / 屏幕渲染 / 结算提取三处共用 | `DMController.events` |
 | 闭集 | 模型只能引用"本轮展示过的编号"，越界即钳制/丢弃 | `DMParser` / `DialogueController._settle_learning` |
 | brief | 首次进场的描述，生成一次后冻结，重进零调用 | `LocationStore.set_brief` |
-| 快照 | `user://characters/<id>.json`，persona 区 + journal 区，一切人物修改落这里 | `SnapshotStore` |
+| 快照 | `saves/characters/<id>.json`，persona 区 + journal 区，一切人物修改落这里 | `SnapshotStore` |
 
 ---
 
@@ -148,15 +149,41 @@ Scripts/
 ├─ Common/
 │     event_bus.gd            ★ 总线：hub() 按契约脚本单例化；resolve() 是取总线的唯一入口
 │     json_tool.gd            ★ 围栏剥离/括号配平提取/宽容键名读取（全项目唯一实现处）
-│     audit_log.gd              jsonl 追加日志（user://dialogue_logs/）
+│     audit_log.gd              jsonl 追加日志（saves/dialogue_logs/）
 │     game_config.gd            DM 风格四旋钮的持久化（[game] 节；KNOB_DEFS 是旋钮定义唯一来源）
-│     game_paths.gd             user:// 目录布局常量的唯一登记处（如对话审计日志目录）
-├─ Toolcall/                   工具调用命名空间：模型输出的操作契约（定义/权限/解析/渲染；
-│                               DM 与 NPC 的 tool_calls 都经此校验——执行仍落在各域控制器）
-│     toolcall_catalog.gd     ★ 目录与权限表（谁能调用什么——唯一来源；加工具在此登记）
-│     toolcall_parser.gd         tool_calls → 权限/结构校验（越权丢弃记 notes；上限 8/回合）
-│     toolcall_def.gd            工具名片（名称/调用方/参数示例/提示词文档行，纯数据）
+│     game_paths.gd             便携目录布局（settings/saves/export 三目录锚定运行根）的唯一登记处
+├─ Toolcall/                   工具调用命名空间：模型输出的操作契约——一个工具一个类，
+│                               全部继承 ToolcallBase（定义+权限+参数校验内聚）；
+│                               DM 与 NPC 的 tool_calls 都经此校验——执行仍落在各域控制器
+│     toolcall_base.gd        ★ 工具基类：名片字段 + is_allowed + validate_args（子类覆盖）
+│     toolcall_facts_declare.gd      facts.declare（仅 DM：申报持久事实）
+│     toolcall_dialogue_start.gd     dialogue.start（仅 DM：递话/开启对话）
+│     toolcall_dialogue_end.gd       dialogue.end（DM 强制收场 / NPC 自己收场）
+│     toolcall_affinity_change.gd    affinity.change（仅 NPC：好感度）
+│     toolcall_belief_propose.gd     belief.propose（仅 NPC：信念提案）
+│     toolcall_world_travel.gd       world.travel（仅 DM：切换到相邻场景，邻接闭集在解析期校验）
+│     toolcall_catalog.gd      目录与注册处（实例化全部工具；def/is_allowed/defs_for）
+│     toolcall_parser.gd         tool_calls → 权限/结构校验（委托工具实例；越权丢弃记 notes；上限 8/回合）
 │     toolcall_renderer.gd       按调用方渲染静态层工具清单（权限表即文档来源）
+│     toolcall_world_discover.gd world.discover（仅 DM：请求动态生成；设计见 docs/gen_design.md）
+│     toolcall_player_state.gd    player.state（仅 DM：玩家状态变更；三级闭集来自 PlayerStateSchema）
+├─ Player/                     玩家状态域：模板驱动（引擎不含世界观词汇——计数器/条目集
+│                               的键、名称、上限全部由 settings/player_state.json 声明）
+│     player_state_schema.gd   ★ 状态模板：加载/校验/内置默认 + 字段规则（validate_entry/match）
+│     player_state_store.gd       saves/world/player_state.json 唯一写入口（apply 增删改+钳制+渲染行）
+├─ Gen/                        动态生成域（autoload "Gen"）：DM 发现新事物 → 独立 agent 编写，
+│                               多轮"构思→审核→修订"，产物只写 saves/（一个 agent 一个类）
+│     gen_controller.gd       ★ 编排：门控/冻结上下文/多轮循环/链式后续/清除命令（零业务细节）
+│     gen_agent_base.gd          生成 agent 基类：提示词+契约校验+落地的统一形态
+│     gen_agent_location.gd      地点 agent（进场描述直接冻结；住户简报链式触发人物生成）
+│     gen_agent_character.gd     人物 agent（知识双通道：池内引用 + 主观条目知情集闭集）
+│     gen_agent_faction.gd       组织 agent（gen_factions.json 唯一写入口）
+│     gen_agent_audit.gd         审核者 agent（三管线共用的第二视角：语义一致性检查单）
+│     gen_context.gd             冻结生成上下文（与材料包冻结同一哲学）
+│     gen_knowledge_pool.gd      候选知识池（"小市民不知道高层秘密"的物理边界）
+│     gen_faction_store.gd       saves/world/gen_factions.json 唯一读写
+│     gen_cleaner.gd             一键清除全部 gen 内容（快照/节点/注册/组织/正典作用域）
+│     gen_events.gd              契约（started/stage/finished + cmd_clear_generated）
 ├─ LLM/
 │     llm_client.gd             抽象基类 + PURPOSE_* 用途常量 + retire 防悬挂机制
 │     llm_controller.gd       ★ autoload "LLM"：complete_json 容错解析 {ok,transport,data,raw}
@@ -174,7 +201,7 @@ Scripts/
 ├─ Characters/                 人物域（与 autoload "Characters" 对齐）
 │     character_controller.gd   autoload "Characters"：保存/恢复/写回/还原 + 启动 relink
 │     lore_repository.gd        作者数据统一入口 shared()/reload_shared()：聚合 res://settings/ → 模型
-│     snapshot_store.gd         user://characters/<id>.json 双区读写（class_name 静态存取器）
+│     snapshot_store.gd         saves/characters/<id>.json 双区读写（class_name 静态存取器）
 │     affinity_store.gd         好感度 −100..100 与档位文案
 │     character_events.gd       契约（lore_changed 是唯一跨域握手）
 ├─ DM/                          裁决层：统一入口的裁判（DM）
@@ -197,17 +224,19 @@ Scripts/
 ├─ Authortool/                   作者工具（架构豁免：作者侧工具，无 autoload/集线器，
 │                                草稿+导出在 RefCounted 模型层，页面直接操作草稿）
 │     authortool_draft.gd        草稿模型：res://settings + 运行时正典 + 风格旋钮 → 内存编辑对象
-│     authortool_exporter.gd     一键导出：user://authortool_export/<时间戳>/ 完整作者数据包
+│     authortool_exporter.gd     一键导出：export/<时间戳>/ 完整作者数据包
 │     authortool_screen.gd       外壳屏：六子页导航 + 重新载入/一键导出
 │     authortool_page.gd        子页基类：setup/apply_draft 统一形态（外壳静态分发）
 │     authortool_list_page.gd    列表型子页基座（左列表增删 + 右表单，选中即编辑）
 │     authortool_world_page.gd / authortool_style_page.gd     世界观主线 / DM 风格四旋钮
+│     authortool_player_state_page.gd  玩家状态模板（JSON 编辑 + 结构校验；导出 player_state.json）
 │     authortool_factions_page.gd / authortool_characters_page.gd
 │     authortool_scenes_page.gd / authortool_facts_page.gd    组织 / 人物 / 场景 / 事实库
 │     authortool_widgets.gd      共享控件构建器（暗色样式，各页复用）
 └─ UI/                          只发 cmd、只收 evt
       main_ui.gd                五屏切换
-      world_screen.gd        ★ 世界屏：门控合成、气泡渲染、调试侧栏四页
+      world_screen.gd        ★ 世界屏：门控合成、气泡渲染、调试侧栏四页、玩家状态悬浮窗
+      player_state_window.gd    玩家状态悬浮窗（可拖动/可展开；模板渲染；清空入口）
       fact_browser.gd           侧栏①事实库（增删改/保存/重置）
       characters_screen.gd / character_edit_screen.gd   人物卡片墙 / 编辑表单
       settings_screen.gd        API 配置 + 风格旋钮（即选即存）
@@ -221,11 +250,14 @@ tests/                           三个 headless 测试：smoke / engine_loop / 
 ## 6. 数据落盘地图
 
 ```
-res://settings/            作者数据，运行期只读（仅「写回卡面」会反向写）
+<运行根>/                  导出版=exe 同目录；开发/测试=项目根（OS.has_feature 判定）
+  settings/                 初始世界观（玩家放置；"重置"类操作以此为准——引擎只读）
+  export/                   AuthorTool 导出的作者数据包（覆盖 settings/ 即换世界观）
+  saves/                    全部运行期数据（删掉整个文件夹即回到初始世界观）
   worldview.txt / mainline.txt     世界观全文 / 主线基调（注入静态层）
   canon.json                       作者正典（启动播种，删除后重启会回来——锚语义）
   player.json / characters/*.json  玩家默认卡 / 人物卡（内联初始知识）
-  factions.json / scenes/*.json / memory/*.json
+  factions.json / scenes/*.json / player_state.json / memory/*.json
 
 user://                    运行期状态（Windows: %APPDATA%\Godot\app_userdata\ai_novel）
   config.cfg                    [deepseek] Key/模型/上限 + [game] 四旋钮
@@ -245,9 +277,11 @@ user://                    运行期状态（Windows: %APPDATA%\Godot\app_userda
 
 ```
 godot --headless -s tests/smoke_test.gd          # 纯逻辑：JSON 工具/设定加载/信任算术/
-                                                  # 材料包/提示词/两个 Parser/正典语义
+                                                  # 材料包/提示词/两个 Parser/Toolcall/Gen 池/正典语义
 godot --headless -s tests/engine_loop_test.gd    # 对话域端到端（经总线，强制离线）
 godot --headless -s tests/dm_loop_test.gd       # DM 统一入口端到端（三条路由→结算全链路）
+godot --headless -s tests/gen_loop_test.gd      # 动态生成端到端（三管线/修订循环/链式/配额/清除）
+godot --headless -s tests/ui_smoke_check.gd     # UI 冒烟：世界屏加载/调试抽屉布局/④页渲染
 ```
 
 两个回路测试的模式：`EventBus.create_shared()` + `LLMController.create_shared()`
@@ -269,7 +303,7 @@ Mock 客户端按 PURPOSE 与玩家话题挑预制样本，所以测试断言是
 | 换/加模型供应商 | 派生 `LLMClient` 子类实现 `complete()`，`LLMController._apply_config` 挂上；purpose 常量在 `llm_client.gd` |
 | 新增一种 AI 功能 | 订阅自己的 cmd + 发自己的 evt + `await LLM.complete_json(sys, usr, PURPOSE_你新加的)`——参考事实整理者的接线 |
 | 调 NPC 说话风格 | `PromptBuilder._build_system`（静态层）；调 DM 文风 → 设置屏四旋钮（只改措辞不改结构） |
-| 给模型加一个操作（工具） | `ToolcallCatalog` 登记权限与文档 → `ToolcallParser._validate_args` 补参数校验 → 所属控制器补落地（参考 facts.declare 的接线） |
+| 给模型加一个操作（工具） | 新建 `ToolcallXxx extends ToolcallBase`（_init 填名片 + validate_args 做参数校验）→ `ToolcallCatalog._build_tools` 登记实例 → 所属控制器补落地（参考 world.travel 的接线） |
 | 改知识/信任规则 | `KnowledgeEntry.apply_*`（算术全在这里，改完跑 smoke_test） |
 
 ## 9. 改代码前的四条硬规则

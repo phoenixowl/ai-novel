@@ -2,14 +2,20 @@ class_name AuthortoolFactsPage
 extends AuthortoolListPage
 ## AuthorTool 子页：事实库编辑——草稿装载自运行时正典（作者播种 + 运行期确立），
 ## 供作者把"实际成为正典的世界"整理成作者数据；被取代条目灰显，导出仅含现行条目。
+## 可见性（visibility）四档可编辑：生成系统候选知识池的分层依据。
 
 const COLOR_SUPERSEDED := Color("#6c757d")
 const WEIGHTS := ["minor", "major"]
 const SOURCES := ["narrator", "player"]
+## 可见性四档（law 人人皆知 / public 公共传闻 / local 本地限定 / secret 有限知情）
+const VISIBILITY := ["public", "law", "local", "secret"]
+const VISIBILITY_LABELS := {"public": "public 公共传闻", "law": "law 人人皆知",
+	"local": "local 本地限定", "secret": "secret 有限知情"}
 
 var _content_edit: TextEdit
 var _weight_option: OptionButton
 var _source_option: OptionButton
+var _visibility_option: OptionButton
 var _scope_edit: LineEdit
 
 
@@ -25,10 +31,9 @@ func _card_label(card: Dictionary) -> String:
 	var tag := str(card.get("id", 0))
 	if int(card.get("id", 0)) == 0:
 		tag = "新增"
-	var prov := "〔临时〕" if str(card.get("status", "")) == "provisional" else ""
 	var scope: Array = card.get("scope", [])
 	var scope_text := "全局" if scope.is_empty() else "、".join(scope)
-	return "%s[%s]（%s · %s）%s" % [prov, tag, card.get("weight", "minor"), scope_text,
+	return "[%s]（%s · %s）%s" % [tag, card.get("weight", "minor"), scope_text,
 		str(card.get("content", "")).substr(0, 30)]
 
 
@@ -42,7 +47,7 @@ func refresh_list() -> void:
 
 func _new_card() -> Dictionary:
 	return {"id": 0, "content": "新事实", "weight": "minor", "source": "narrator",
-		"scope": [], "status": "active"}
+		"visibility": "public", "scope": [], "status": "active"}
 
 
 func _build_form(form: VBoxContainer) -> void:
@@ -64,6 +69,14 @@ func _build_form(form: VBoxContainer) -> void:
 		if not _is_filling() and not current.is_empty():
 			current["source"] = SOURCES[index])
 	form.add_child(AuthortoolWidgets.field_row("来源", _source_option))
+	var vis_labels: Array = []
+	for v in VISIBILITY:
+		vis_labels.append(VISIBILITY_LABELS[v])
+	_visibility_option = AuthortoolWidgets.option(vis_labels)
+	_visibility_option.item_selected.connect(func(index: int):
+		if not _is_filling() and not current.is_empty():
+			current["visibility"] = VISIBILITY[index])
+	form.add_child(AuthortoolWidgets.field_row("可见性（谁能知道——生成知识的分层依据）", _visibility_option))
 	_scope_edit = AuthortoolWidgets.line_edit("作用域实体 id，逗号分隔（空 = 全局）")
 	_scope_edit.text_changed.connect(func(t: String):
 		if not _is_filling() and not current.is_empty():
@@ -77,4 +90,5 @@ func _fill_form(card: Dictionary) -> void:
 	_content_edit.text = str(card.get("content", ""))
 	_weight_option.selected = maxi(0, WEIGHTS.find(str(card.get("weight", "minor"))))
 	_source_option.selected = maxi(0, SOURCES.find(str(card.get("source", "narrator"))))
+	_visibility_option.selected = maxi(0, VISIBILITY.find(str(card.get("visibility", "public"))))
 	_scope_edit.text = AuthortoolWidgets.join_list(card.get("scope", []))

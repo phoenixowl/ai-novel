@@ -161,8 +161,8 @@ UI 和逻辑层之间、逻辑层各域之间的所有通信都走 `EventBus`。
 | `Location`（location.gd） | `environment` / `atmosphere` / `opening_situation`（作者素材）/ `links`（作者声明路线）/ `brief`（冻结进场描述，运行期）/ `npcs`（在场人物 id） | 吸收原 SceneCard + 位置节点 |
 | `Faction`（faction.gd） | `description` / `members`（{name, position} 成员表）/ `position_of(名字)` | 成员可以是没有人物卡的配角 |
 
-- **注册表 `EntityRegistry`**（`Scripts/Narration/entity_registry.gd`）持有全部实体对象；启动 `load_authors(repository)` 从设定资料导入（作者实体是锚）；生成实体 `register_gen(entity)` 分配 `gen_N` id。**解析**：`resolve(名字)` 精确匹配、`scan_mentioned(文本)` 子串扫描。持久化 `user://world/entities.json` **只存注册表投影**（六公共字段）——知识在人物快照、brief/npcs 在位置图，避免双写。
-- **位置图 `LocationStore`**（`Scripts/Narration/location_store.gd`）：持有 Location 子集索引 + 边（`{a, b}` 无向）+ `current`；`travel_to` 校验邻接（移动零模型参与）；`set_brief` 冻结进场描述；`place_npc` / `location_of_npc` 供对话检索。作者重载时 `merge_author` 刷新作者字段、**保留 brief/npcs**。持久化 `user://world/locations.json`。
+- **注册表 `EntityRegistry`**（`Scripts/Narration/entity_registry.gd`）持有全部实体对象；启动 `load_authors(repository)` 从设定资料导入（作者实体是锚）；生成实体 `register_gen(entity)` 分配 `gen_N` id。**解析**：`resolve(名字)` 精确匹配、`scan_mentioned(文本)` 子串扫描。持久化 `saves/world/entities.json` **只存注册表投影**（六公共字段）——知识在人物快照、brief/npcs 在位置图，避免双写。
+- **位置图 `LocationStore`**（`Scripts/Narration/location_store.gd`）：持有 Location 子集索引 + 边（`{a, b}` 无向）+ `current`；`travel_to` 校验邻接（移动零模型参与）；`set_brief` 冻结进场描述；`place_npc` / `location_of_npc` 供对话检索。作者重载时 `merge_author` 刷新作者字段、**保留 brief/npcs**。持久化 `saves/world/locations.json`。
 
 ### 5.2 世界事实 `CanonFact` 与正典 `CanonStore`
 
@@ -172,7 +172,7 @@ UI 和逻辑层之间、逻辑层各域之间的所有通信都走 `EventBus`。
 
 - **写入**：`establish`（精确文本去重——与某条现行条目同文则复用其 id）、`supersede`（只标不删，新条目继承旧作用域）、`erase`（唯一删除入口，专供事实库浏览器；取代链清零）。
 - **检索**（全部确定性）：`facts_for_location`（地点作用域，上限 40 保最近）/ `facts_for_entities`（实体作用域，上限 40）/ `global_major_digest`（major 且全局，最新 15 条）。
-- 持久化 `user://world/canon.json`；惰性加载并播种作者正典 `settings/canon.json`（§4.4）。
+- 持久化 `saves/world/canon.json`；惰性加载并播种作者正典 `settings/canon.json`（§4.4）。
 
 ### 5.3 信念条目 `KnowledgeEntry`（富模型）
 
@@ -186,7 +186,7 @@ UI 和逻辑层之间、逻辑层各域之间的所有通信都走 `EventBus`。
 
 字段：`seq`（卡面 1..N、习得 ≥10000——belief_updates 的 ref 指它）、`content`（REF 存创建时快照）、`evidence`（玩家原话节选）、`speaker`（来源标签）、`trust`（`DOUBT < SOMEWHAT < ABSOLUTE` 枚举，JSON 中文键）、`status`（`ACTIVE` / `VOIDED`）、`fact_id`、`origin`、`turn`/`session`/`links`/`note`/`learned_at`。
 
-**富模型算术**（原 KnowledgeJournal 的确定性规则迁入条目本身）：`apply_corroboration(by_speaker)`（同来源无效；VOIDED → 复活为 DOUBT；否则信任升一档钳位 ABSOLUTE）、`apply_contradiction()`（降一档下限 DOUBT）、`is_stale()`（只读正典判定）。记忆在 `Person.memories`（材料包注入最近 3 条）。人物信念/记忆持久化在人物运行时快照 `user://characters/<id>.json` 的 journal 区（`CharacterController.save_journal` 统一写路径；启动 `relink_runtime_journals` 把旧形态条目对齐为引用）。
+**富模型算术**（原 KnowledgeJournal 的确定性规则迁入条目本身）：`apply_corroboration(by_speaker)`（同来源无效；VOIDED → 复活为 DOUBT；否则信任升一档钳位 ABSOLUTE）、`apply_contradiction()`（降一档下限 DOUBT）、`is_stale()`（只读正典判定）。记忆在 `Person.memories`（材料包注入最近 3 条）。人物信念/记忆持久化在人物运行时快照 `saves/characters/<id>.json` 的 journal 区（`CharacterController.save_journal` 统一写路径；启动 `relink_runtime_journals` 把旧形态条目对齐为引用）。
 
 ---
 
@@ -482,11 +482,11 @@ NPC 的材料包会注入两组**世界事实**（硬线②只读）：该 NPC �
 | 模型 | `LLMController` / `DeepSeekClient` / `MockClient` | `Scripts/LLM/` | — |
 | **数据模型** | `Entity` / `Person` / `Location` / `Faction` / `KnowledgeEntry` / `CanonFact` / `MaterialPack` / `NarrationPack` | `Scripts/Models/` | 经各存取类落盘 |
 | 设定库 | `LoreRepository` | `Scripts/Lore/lore_repository.gd`（产出 Models 对象） | 读 `res://settings/` |
-| 人物 | `CharacterController` / `SnapshotStore` / `AffinityStore` | `Scripts/Lore/` | `user://characters/`、`user://affinity/` |
+| 人物 | `CharacterController` / `SnapshotStore` / `AffinityStore` | `Scripts/Lore/` | `saves/characters/`、`user://affinity/` |
 | 信念 | `KnowledgeEntry`（算术）+ `Person.knowledge` | `Scripts/Models/knowledge_entry.gd` | 快照 journal 区 |
-| 正典 | `CanonStore` | `Scripts/Narration/canon_store.gd` | `user://world/canon.json` |
-| 实体 | `EntityRegistry` | `Scripts/Narration/entity_registry.gd` | `user://world/entities.json` |
-| 位置 | `LocationStore` | `Scripts/Narration/location_store.gd` | `user://world/locations.json` |
+| 正典 | `CanonStore` | `Scripts/Narration/canon_store.gd` | `saves/world/canon.json` |
+| 实体 | `EntityRegistry` | `Scripts/Narration/entity_registry.gd` | `saves/world/entities.json` |
+| 位置 | `LocationStore` | `Scripts/Narration/location_store.gd` | `saves/world/locations.json` |
 | 旁白 | `NarrationController` / `NarrationPackBuilder` / `NarrationPromptBuilder` / `NarrationParser` | `Scripts/Narration/` | 审计日志 |
 | 对话 | `DialogueController` / `MaterialPackBuilder` / `PromptBuilder` / `ResponseParser` / `InputReviewer` / `MemorySummarizer` | `Scripts/Dialogue/` | 审计日志 |
 | UI | `main_ui` + 六屏 + `FactBrowser` | `Scripts/UI/`、`Scenes/*.tscn` | — |

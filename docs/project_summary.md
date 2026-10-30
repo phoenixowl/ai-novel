@@ -101,7 +101,7 @@
   取代链置 0，不留悬空引用。
 - **全局版本号 `_version`**：任何写入 +1。BM25 索引（FactIndex）拿它当缓存键，正典一变就惰性重建。
 
-**持久化**：`user://world/canon.json`。惰性加载——任何公开 API 首次调用时自动读盘 + 播种作者正典，
+**持久化**：`saves/world/canon.json`。惰性加载——任何公开 API 首次调用时自动读盘 + 播种作者正典，
 所以 autoload 初始化顺序不影响正确性。
 
 **作用域分配（确定性，`_scope_for`）**：新事实挂谁名下？扫描表述里提到的实体（规范名/别名精确
@@ -227,7 +227,7 @@
    记忆追加到 `Person.memories`（材料包只取最近 3 条）；知识走**学习路径实体消解**：
    content 与某条现行正典**逐字一致** → 记 REF 信念引用（不是复制品）；否则记 SUBJECTIVE 主观条目
    （默认怀疑档）。引擎确定性匹配，零开放生成。LLM 失败时静默跳过，但仍落盘保住信念结算。
-3. **落盘**：知识日志 + 记忆写入 `user://characters/<id>.json` 快照。
+3. **落盘**：知识日志 + 记忆写入 `saves/characters/<id>.json` 快照。
 
 **行动清单**：模型每轮只能三选一——`answer`（答话）/ `silence`（沉默）/ `end_dialogue`
 （结束对话，必须附带离开动作描述）。
@@ -237,7 +237,8 @@
 ## 7. 世界流水与探索结算（`WorldStream` + 整理者 agent）
 
 **世界流水**是叙述事件 + 对话回声副本的**单一混排数组**，三处共用：DM 上下文、屏幕渲染、结算提取。
-对话域只经 `recent_narration_only_lines()` 只读叙述域片段（硬线②），与对话自己的记录槽互不重复。
+对话域只经 `recent_witness_lines()` 只读**当前地点**的叙述域片段（硬线②；按地点过滤、以 NPC 视角
+渲染——仅句首标记说话者的"你"替换为玩家称呼，引语保持原样），与对话自己的记录槽互不重复。
 
 **临时事实通道**（行动回合的即时记账）：DM 叙述里若确立了持久状态变化，走 `facts` 契约申报，
 以 PROVISIONAL 状态**立即入正典**——后续回合的检索和对话学习马上可用；结算时由整理者复核。
@@ -328,7 +329,7 @@ factions.json、characters/*.json（人物卡内联初始知识）、scenes/*.js
 加载时完成：人物快照 persona 区字段级覆盖 → journal 区整体接管信念/记忆 → 与正典逐字一致的
 卡面知识升级为 REF 引用。
 
-**运行时快照**（`SnapshotStore`）：`user://characters/<id>.json`，两区读-改-写互不覆盖——
+**运行时快照**（`SnapshotStore`）：`saves/characters/<id>.json`，两区读-改-写互不覆盖——
 persona 区（name/identity/profile，键存在才接管）+ journal 区（knowledge/memories/next_seq，
 "knowledge" 键存在即接管）。一切人物修改（对话学习、编辑页保存）都写这里；
 `res://settings/` 只读，只有「写回作者卡面」按钮会反向写（且仅 Godot 编辑器环境可行）。
@@ -375,7 +376,7 @@ persona 区（name/identity/profile，键存在才接管）+ journal 区（knowl
 注入词拒绝、"说/问"等词判说话、"拿/走"等词判行动），部分样本故意裹 markdown 围栏验证解析容错。
 
 **EmbeddingClient**：OpenAI 兼容 `/embeddings`，对接第二家供应商（默认 SiliconFlow +
-BAAI/bge-m3），8s 超时 + 看门狗，批量上限 16。Key 存 `user://config.cfg` 的 `[embedding]` 节。
+BAAI/bge-m3），8s 超时 + 看门狗，批量上限 16。Key 存 `saves/config.cfg` 的 `[embedding]` 节。
 
 ---
 
@@ -384,7 +385,7 @@ BAAI/bge-m3），8s 超时 + 看门狗，批量上限 16。Key 存 `user://confi
 - 六个子页：世界观 / 组织 / 人物 / 场景 / 事实库 / 风格（四旋钮）。左侧导航右侧表单。
 - **草稿模型**（`AuthortoolDraft`）：装载 res://settings + 运行时正典全量 + 风格旋钮到内存，
   编辑永远只改草稿，不碰任何现有目录；卡片全键保真（表单只改已知键，未知键导出原样带回）。
-- **一键导出**（`AuthortoolExporter`）：写到 `user://authortool_export/<时间戳>/`，镜像 settings/
+- **一键导出**（`AuthortoolExporter`）：写到 `export/<时间戳>/`，镜像 settings/
   目录结构，另附 style.json 与 manifest；事实只导出 active 条目。整目录覆盖 settings/ 即可生效。
 - 与 EventBus 的交互只有屏幕导航，不参与游戏运行时。
 
@@ -401,9 +402,10 @@ BAAI/bge-m3），8s 超时 + 看门狗，批量上限 16。Key 存 `user://confi
 | 设置 | DeepSeek API（Key/模型/max_tokens/测试连接）+ DM 四旋钮（即选即存）+ 检索档位（BM25/向量/关闭 + 嵌入商配置） |
 | AuthorTool | 见 §13 |
 
-**世界屏调试侧栏四页**（双域共用，最新覆盖）：① 世界事实（FactBrowser：按现状浏览、增删改、
-保存、一键重置回作者正典）② 材料包（DMPack/DialoguePack 的调试渲染）③ 完整提示词
-（System+User 全文，可复制）④ 模型回应（原始输出 + 解析结果 + 自动修复 notes）。
+**世界屏调试侧栏四页**（双域共用，最新覆盖；右侧浮层抽屉——展开不挤压世界面板）：
+① 世界事实（FactBrowser：按现状浏览、增删改、保存、一键重置回作者正典）
+② 材料包（DMPack/DialoguePack 的调试渲染）③ 完整提示词（System+User 全文，可复制）
+④ 模型回应（原始输出 + 解析结果 + 工具调用明细 + 自动修复 notes）。
 
 UI 只连信号、发命令；UI 打开晚于逻辑层就绪时经 `cmd_get_*` 补拉快照。
 
@@ -412,11 +414,13 @@ UI 只连信号、发命令；UI 打开晚于逻辑层就绪时经 `cmd_get_*` �
 ## 15. 数据落盘地图
 
 ```
-res://settings/                    作者数据，运行期只读（仅「写回卡面」和 AuthorTool 导出会反向产出）
+<运行根>/settings/         初始世界观（导出版=exe 同目录；开发期=项目 settings/；
+                           "重置"类操作以此为准）
+<运行根>/export/           AuthorTool 导出包（覆盖 settings/ 即换世界观）
   worldview.txt / mainline.txt     世界观全文 / 主线基调（注入两域静态层）
   canon.json                       作者正典（启动播种，删除后重启回来——锚语义）
   player.json / characters/*.json  玩家默认卡 / 人物卡（内联初始知识 [{content, source, trust}]）
-  factions.json / scenes/*.json / memory/*.json
+  factions.json / scenes/*.json / player_state.json / memory/*.json
 
 user://                            运行期状态（Windows: %APPDATA%\Godot\app_userdata\ai_novel）
   config.cfg                       [deepseek] Key/模型/上限 + [game] 四旋钮 + [embedding] 检索档
@@ -463,16 +467,26 @@ godot --headless -s tests/dm_loop_test.gd      # DM 统一入口端到端：三�
 
 模型输出中的"操作"不再写死为顶层 JSON 字段，而是走**工具调用**：输出里带
 `"tool_calls": [{"tool": "facts.declare", "args": {…}}, …]`，引擎按目录校验权限与结构后
-转交各域控制器落地。命名空间为 `Scripts/Toolcall/`（类名前缀 `Toolcall*`，与 Authortool 同款约定）：
+转交各域控制器落地。命名空间为 `Scripts/Toolcall/`（类名前缀 `Toolcall*`，与 Authortool 同款约定）。
 
-| 类 | 职责 |
-|---|---|
-| `ToolcallCatalog` | 目录与**权限表**（谁能调用什么——唯一来源）；加工具在此登记 |
-| `ToolcallDef` | 工具名片：名称/标题/调用方/参数示例/提示词文档行（纯数据） |
-| `ToolcallParser` | `tool_calls` 数组 → 权限+结构校验（越权/坏项丢弃记 notes；单回合上限 8 个；扁平参数写法兼容） |
-| `ToolcallRenderer` | 按调用方渲染静态层"你可用的工具"文档段——**权限表即文档来源** |
+**一个工具 = 一个类**：全部工具继承 `ToolcallBase`（名片字段 name/title/callers/args_hint/doc +
+`is_allowed` + `validate_args`），每个工具的权限、提示词文档与参数校验内聚在自己的类里：
 
-五个工具与权限矩阵（与各域硬线一一对应）：
+| 类 | 工具 | 调用方 |
+|---|---|---|
+| `ToolcallFactsDeclare` | `facts.declare` | 仅 DM |
+| `ToolcallDialogueStart` | `dialogue.start` | 仅 DM |
+| `ToolcallDialogueEnd` | `dialogue.end` | DM + NPC |
+| `ToolcallAffinityChange` | `affinity.change` | 仅 NPC |
+| `ToolcallBeliefPropose` | `belief.propose` | 仅 NPC |
+| `ToolcallWorldTravel` | `world.travel` | 仅 DM |
+
+基础设施三件套：`ToolcallCatalog`（注册处：实例化全部工具，def/is_allowed/defs_for）、
+`ToolcallParser`（tool_calls 数组 → 权限+结构校验，校验委托给工具实例；越权/坏项丢弃记 notes；
+单回合上限 8 个；扁平参数写法兼容）、`ToolcallRenderer`（按调用方渲染静态层"你可用的工具"
+文档段——**权限表即文档来源**）。
+
+权限矩阵（与各域硬线一一对应）：
 
 | 工具 | DM | NPC | 语义 |
 |---|---|---|---|
@@ -481,12 +495,67 @@ godot --headless -s tests/dm_loop_test.gd      # DM 统一入口端到端：三�
 | `dialogue.end` | ✓ | ✓ | DM 强制结算当前对话；NPC 结束自己这场（须写 departure 离开动作） |
 | `affinity.change` | ✗ | ✓ | 好感度变化 ±10（NPC 自己的心，DM 不能代写；多次调用合计钳位） |
 | `belief.propose` | ✗ | ✓ | 信念提案 {ref, relation, note}（硬线①：DM 不碰 NPC 信念；延后到对话结束结算） |
+| `world.travel` | ✓ | ✗ | 切换场景：**只能移动到相邻场景**（邻接闭集在解析期校验，DM 材料层附相邻地点清单）；落地与 UI 移动按钮共用同一条确定性移动带，对话进行中不可移动 |
+| `world.discover` | ✓ | ✗ | 请求动态生成新地点/人物/组织（Gen 域执行，见 §19）；每段探索 3 次、gen 总量 50 上限 |
+| `player.state` | ✓ | ✗ | 玩家状态变更（计数器/条目集增删改；三级闭集来自状态模板，见 §20） |
 
 **执行仍在控制器**：工具层只做契约（定义/权限/解析/渲染），不直接改世界——写入照旧收敛到
-`CanonStore.establish / AffinityStore.apply_change / end_dialogue` 等引擎函数（硬规则不变）。
+`CanonStore.establish / AffinityStore.apply_change / end_dialogue / _travel` 等引擎函数（硬规则不变）。
 `DMParser.validate_dm` / `ResponseParser.validate` 把校验后的调用转成控制器原有的内部结构
 （facts 列表、话语分派、end_dialogue 行动、belief_updates、affinity_change），旧版顶层字段
-（npc/speech/facts、belief_updates/affinity_change、end_dialogue 行动类型）仍兼容解析，工具调用优先。
-NPC 行动清单由三选一改为**二选一**（答话/沉默），结束对话移入工具；DM 新增 dialogue.end
-强制收场能力（结算当前对话，学习与记忆照常落档）。加新工具三步：`ToolcallCatalog` 登记
-（权限+文档）→ `ToolcallParser` 补参数校验 → 所属控制器补落地。
+（npc/speech/facts、belief_updates/affinity_change、end_dialogue 行动类型）仍兼容解析，工具调用优先，
+新旧并存按工具优先并记 notes。
+NPC 行动清单为**二选一**（答话/沉默），结束对话移入工具；DM 新增 dialogue.end 强制收场与
+world.travel 相邻移动能力。加新工具三步：新建 `ToolcallXxx extends ToolcallBase`（名片+校验）→
+`ToolcallCatalog._build_tools` 登记 → 所属控制器补落地。
+
+---
+
+## 19. 动态生成域（Gen）
+
+DM 裁决发现"世界里还没写过的东西"时调用 `world.discover {kind, brief}`，由 Gen 域
+（autoload "Gen"，`Scripts/Gen/`）的独立 agent 编写新地点/人物/组织——**产物只写 user/**
+（快照/位置图/注册表/gen_factions.json/正典存在事实），settings/ 零触碰。设计全文见
+[docs/gen_design.md](gen_design.md)。**一个 agent 一个类**（避免上帝类）：
+
+- `GenAgentBase` 基类：`build_draft_prompt` / `validate_draft`（引擎闭集校验）/ `land`（落地）
+  / `build_revision_prompt` / `render_for_audit` 的统一形态，三个生成 agent 继承它；
+- `GenAgentLocation`（进场描述直接冻结为 brief；住户简报可选、链式触发人物生成）、
+  `GenAgentCharacter`（知识双通道：候选池编号引用 + 主观条目知情集闭集）、
+  `GenAgentFaction`（gen_factions.json 唯一写入口）；
+- `GenAuditAgent`：三管线共用的审核者（信息越权/世界观冲突/风格错位/重复/引用自洽五项检查单）；
+- `GenController` 只做编排：门控（每段探索 3 次 / gen 总量 50 / 忙碌互斥——生成期间玩家输入
+  被闸住）、冻结上下文（`GenContext` + `GenKnowledgePool`）、**多轮管线**（构思 → 引擎校验 →
+  审核 → 修订 ≤2 轮，引擎契约不合格与审核 revise 都进修订循环，预算耗尽放弃"世界无事发生"）、
+  链式后续（先落地者进入后继者的世界）、阶段广播（GenEvents）与 lore_changed 握手。
+
+**逻辑一致性的机械保证**：正典事实新增 visibility（LAW/PUBLIC/LOCAL/SECRET，默认按作用域推导）；
+生成人物时 `GenKnowledgePool` 按"人人皆知 + 本地 + 圈子"三层构建编号清单——清单外不注入、
+引用即丢、主观条目提及知情集外实体整条丢弃（"小市民不知道高层秘密"）。新实体落地自动写
+"存在事实"入典（后续检索可召回）；旧 NPC 知识不自动改，靠材料层可见 + 对话学习 + 取代链
+stale 标注自然传播。`GenCleaner` 一键清除全部 gen 内容（世界屏"清除生成"按钮）。
+测试：`tests/gen_loop_test.gd`（五场景离线 e2e：干净路径/修订循环/组织/地点链式/配额闸门/清除）。
+
+---
+
+## 20. 玩家状态域（Player）——模板驱动的状态档案
+
+玩家的随身状态（货币、物品、身心、之约、线索）由**状态模板**声明，引擎不含任何世界观
+词汇（设计全文见 [docs/player_state_design.md](player_state_design.md)）：
+
+- **`PlayerStateSchema`**：加载 `settings/player_state.json`（作者声明这个世界观里玩家有哪些
+  **计数器**——带上下限的数值资源，与**条目集**——字段化的清单）；损坏/缺失回落内置通用默认
+  （"货币"+物品/状态/之约/备注）。字段规则（必填/类型/字长/默认值）的唯一来源。
+- **`PlayerStateStore`**：`saves/world/player_state.json` 唯一写入口；`apply()` 按模板三级闭集
+  （计数器键→条目集键→字段名）校验并执行增删改（上下限钳位、cap 满拒绝、匹配不到记 notes），
+  返回操作回执（canon_sync 与摘要用）；`render_dm_lines()`/`render_npc_lines()` 按模板渲染。
+- **写入权**：仅 DM 经 `player.state` 工具提案（counters 增量 + add/remove/update 三类原子操作）；
+  落地在 `DMController._apply_player_state`——canon_sync 条目集的增删自动同步正典事实（挂玩家名下，
+  NPC 侧认知与档案一致），变更进世界流水并广播 `player_state_changed`。
+- **读取**：DM 材料层每回合带"玩家状态"段（工具的合法键来源）；NPC 只见 `npc_visible: true`
+  的条目集（默认无——玩家的牌面）；世界屏**可拖动、可展开的玩家状态悬浮窗**（`PlayerStateWindow`：
+  收起显示计数器一行、展开显示各条目集明细，标题栏拖动+钳制屏幕内，含"清空"二次确认）。
+- 生命周期：跨探索/跨重启保留；三个重置入口都不动它。测试：smoke（模板/闭集/钳位/渲染）+
+  dm_loop 场景十（买灯：晶石扣减、canon_sync 入典、事件落档）+ ui_smoke（悬浮窗交互）。
+
+替换世界观只需换 `settings/player_state.json`（武侠银两/内力、克苏鲁理智/创伤……），引擎零改动。

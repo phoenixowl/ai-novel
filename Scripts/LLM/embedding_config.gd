@@ -1,13 +1,15 @@
 class_name EmbeddingConfig
 extends RefCounted
-## 语义检索向量档配置（LLM 层）：持久化到 user://config.cfg 的 [embedding] 节。
+## 语义检索向量档配置（LLM 层）：持久化到 saves/config.cfg 的 [embedding] 节。
 ## provider 三档（与 FactRetriever/DMController 的回落链对应）：
 ##   builtin（默认）—— 本地 BM25，零配置；
 ##   api           —— 向量检索（OpenAI 兼容 /embeddings，第二家供应商；失败自动回落 builtin）；
 ##   off           —— 只用骨架层信号。
 
 
-const CONFIG_PATH := "user://config.cfg"
+static func config_path() -> String:
+	return GamePaths.config_path()
+
 const SECTION := "embedding"
 
 const PROVIDER_BUILTIN := "builtin"
@@ -42,7 +44,7 @@ static func is_valid_provider(key: String) -> bool:
 
 func load_from_disk() -> void:
 	var config := ConfigFile.new()
-	if config.load(CONFIG_PATH) != OK:
+	if config.load(config_path()) != OK:
 		return
 	var p := str(config.get_value(SECTION, "provider", PROVIDER_BUILTIN))
 	if is_valid_provider(p):
@@ -54,12 +56,12 @@ func load_from_disk() -> void:
 
 func save_to_disk() -> void:
 	var config := ConfigFile.new()
-	config.load(CONFIG_PATH)  # 无文件时忽略，保留其它节
+	config.load(config_path())  # 无文件时忽略，保留其它节
 	config.set_value(SECTION, "provider", provider)
 	config.set_value(SECTION, "api_key", api_key)
 	config.set_value(SECTION, "model", model)
 	config.set_value(SECTION, "base_url", base_url)
-	config.save(CONFIG_PATH)
+	config.save(config_path())
 
 
 ## 是否应使用向量档（api 档且 Key 非空）。

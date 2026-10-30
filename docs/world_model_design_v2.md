@@ -88,7 +88,7 @@
   current: entity_id }                                   // 玩家当前位置
 ```
 
-持久化 `user://world/locations.json`。作者场景卡导入为初始节点；初始路线由场景卡的 `links` 字段声明（作者写邻接），未声明 links 的作者场景默认全部连通到第一个场景（兜底，防死锁——跑团规范"至少留一条无条件的出口"的同款自觉）。
+持久化 `saves/world/locations.json`。作者场景卡导入为初始节点；初始路线由场景卡的 `links` 字段声明（作者写邻接），未声明 links 的作者场景默认全部连通到第一个场景（兜底，防死锁——跑团规范"至少留一条无条件的出口"的同款自觉）。
 
 ### 3.2 移动（无 LLM）
 
@@ -214,7 +214,7 @@ NPC 的材料 = **信念层全量**（含 stale 标注与主观条目）+ **检�
 
 ## 7. 持久化
 
-- 持久化：`user://world/canon.json`（+scope）、`user://world/locations.json`（新）、`user://characters/<id>.json`（gen_ 人物卡，现有）。
+- 持久化：`saves/world/canon.json`（+scope）、`saves/world/locations.json`（新）、`saves/characters/<id>.json`（gen_ 人物卡，现有）。
 
 ---
 

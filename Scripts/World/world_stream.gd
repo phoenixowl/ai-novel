@@ -28,6 +28,7 @@ static func append_dialogue_echo(event: Dictionary) -> void:
 static func _finish_append(event: Dictionary, domain: String) -> void:
 	event["seq"] = _events.size() + 1
 	event["domain"] = domain
+	event["location"] = LocationStore.current()  # 发生地点——NPC 见证上下文按此过滤（跨场景不串场）
 	_events.append(event)
 
 
@@ -35,6 +36,7 @@ static func _finish_append(event: Dictionary, domain: String) -> void:
 
 
 ## 近期混排行（叙述与对话回声，最近 n 行，正序）——DM 材料层与进场描述用。
+## DM 是世界裁判：混排窗口不按地点过滤（它应当记得玩家在别处做过什么）。
 static func recent_mixed_lines(n: int) -> Array[String]:
 	var lines: Array[String] = []
 	var count := 0
@@ -48,16 +50,20 @@ static func recent_mixed_lines(n: int) -> Array[String]:
 	return lines
 
 
-## 叙述域近期行（不含对话回声，最近 n 行，正序）——对话材料包"此刻之前发生了什么"用，
-## 与对话自身的已确认记录槽避免重复。
-static func recent_narration_only_lines(n: int) -> Array[String]:
+## NPC 见证上下文（"此刻之前这里发生了什么"）：只取**指定地点**发生的叙述域事件，
+## 以 NPC 视角渲染（"你"→玩家称呼——叙述原文的第二人称是说给玩家的，不是给 NPC 的）。
+## location_id：NPC 所在地点；player_name：玩家称呼。对话回声不在此（对话自身另有记录槽）。
+static func recent_witness_lines(n: int, location_id: String, player_name: String) -> Array[String]:
 	var lines: Array[String] = []
 	var count := 0
 	for i in range(_events.size() - 1, -1, -1):
 		var event := _events[i] as Dictionary
 		if str(event.get("domain", "")) == "dialogue":
 			continue
-		var line := _render_line(event)
+		var at := str(event.get("location", ""))
+		if not location_id.is_empty() and not at.is_empty() and at != location_id:
+			continue  # 别处发生的事：此地的 NPC 没亲眼所见
+		var line := DialoguePack.witness_line(event, player_name)
 		if not line.is_empty():
 			lines.push_front(line)
 			count += 1

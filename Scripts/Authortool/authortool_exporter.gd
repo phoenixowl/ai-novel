@@ -1,19 +1,23 @@
 class_name AuthortoolExporter
 extends RefCounted
 ## AuthorTool 导出器（Scripts/Authortool/）：把草稿写成一份完整的作者数据包，
-## 落在独立目录 user://authortool_export/<时间戳>/（同秒重导追加序号）——
+## 落在 export/<时间戳>/（同秒重导追加序号）——
 ## 镜像 settings/ 目录结构，另附 style.json 与 authortool_manifest.json；
-## 不触碰 res://settings 与 user:// 其它任何目录。
+## 不触碰 settings/ 与 saves/。
 ## 事实只导出 active 条目（settings/canon.json 的作者播种格式；narrator 来源省略以贴合既有文件风格）。
 
 
-const EXPORT_ROOT := "user://authortool_export"
+static func default_root() -> String:
+	return GamePaths.export_dir()
+
 const INDENT := "  "
 
 
-## 导出草稿到 <root>/<时间戳>/。返回 {ok, path(user:// 目录), abs_path, files[user://…], error}。
+## 导出草稿到 <root>/<时间戳>/（默认 export/）。返回 {ok, path, abs_path, files, error}。
 ## draft：编辑完成的草稿；root：导出根目录（测试可注入别的目录）。
-static func export_draft(draft: AuthortoolDraft, root := EXPORT_ROOT) -> Dictionary:
+static func export_draft(draft: AuthortoolDraft, root := "") -> Dictionary:
+	if root.is_empty():
+		root = default_root()
 	var stamp := Time.get_datetime_string_from_system()
 	stamp = stamp.replace(":", "").replace("-", "").replace("T", "_")
 	var dir := "%s/%s" % [root, stamp]
@@ -21,6 +25,8 @@ static func export_draft(draft: AuthortoolDraft, root := EXPORT_ROOT) -> Diction
 	while DirAccess.dir_exists_absolute(dir):
 		serial += 1
 		dir = "%s/%s_%d" % [root, stamp, serial]
+	if root.is_empty():
+		root = default_root()
 	var err := DirAccess.make_dir_recursive_absolute(dir)
 	if err != OK:
 		return {"ok": false, "path": dir, "abs_path": ProjectSettings.globalize_path(dir),
@@ -35,6 +41,10 @@ static func export_draft(draft: AuthortoolDraft, root := EXPORT_ROOT) -> Diction
 	files.append(_write_text(dir + "/mainline.txt", draft.mainline))
 	files.append(_write_json(dir + "/factions.json", {"factions": draft.factions}))
 	files.append(_write_json(dir + "/player.json", draft.player))
+	var has_state := not (draft.player_state.get("counters", []) as Array).is_empty() \
+		or not (draft.player_state.get("collections", []) as Array).is_empty()
+	if has_state:
+		files.append(_write_json(dir + "/player_state.json", draft.player_state))
 	files.append(_write_json(dir + "/canon.json", {"facts": exported_facts}))
 
 	# 人物/场景/记忆：每卡一文件，文件名取卡片 id（清洗后）
@@ -70,7 +80,7 @@ static func export_draft(draft: AuthortoolDraft, root := EXPORT_ROOT) -> Diction
 			"facts": exported_facts.size(),
 			"memory": draft.memory.size(),
 		},
-		"notes": "本目录是完整作者数据包，可整目录覆盖 settings/ 使用；"
+		"notes": "本目录是完整作者数据包，整目录覆盖 exe 同目录的 settings/ 即生效；"
 			+ "style.json 对应 DM 风格四旋钮（采纳度/裁决倾向/描写密度/正典门槛）。",
 	}
 	if not problems.is_empty():
@@ -94,6 +104,8 @@ static func _facts_for_export(draft: AuthortoolDraft) -> Array:
 			item["scope"] = scope
 		if str(f.get("source", "narrator")) != "narrator":
 			item["source"] = str(f.get("source", "narrator"))
+		if not str(f.get("visibility", "")).is_empty():
+			item["visibility"] = str(f.get("visibility", ""))
 		out.append(item)
 	return out
 

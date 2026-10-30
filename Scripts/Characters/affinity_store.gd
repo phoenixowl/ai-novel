@@ -1,10 +1,12 @@
 class_name AffinityStore
 extends RefCounted
 ## 好感度存取（Characters 层）：每个 NPC 对玩家的好感度，-100 到 +100。
-## 运行时变化持久化到 user://affinity/<npc_id>.json；未修改过的 NPC 用人物卡初始值。
+## 运行时变化持久化到 saves/affinity/<npc_id>.json；未修改过的 NPC 用人物卡初始值。
 
 
-const DIR := "user://affinity"
+static func dir() -> String:
+	return GamePaths.affinity_dir()
+
 const MIN_VALUE := -100
 const MAX_VALUE := 100
 const MAX_CHANGE_PER_TURN := 10
@@ -24,7 +26,7 @@ const TIERS := [
 ## 读某 NPC 的好感度；无记录时返回 initial（人物卡初始值）。npc_id：人物卡 id。
 ## 读到的值钳位到 [-100, 100]（防手改文件越界直通档位计算）。
 static func get_value(npc_id: String, initial := 0) -> int:
-	var parsed := JsonTool.read_json_file("%s/%s.json" % [DIR, npc_id])
+	var parsed := JsonTool.read_json_file("%s/%s.json" % [dir(), npc_id])
 	if parsed.is_empty():
 		return initial
 	return clampi(int(parsed.get("value", initial)), MIN_VALUE, MAX_VALUE)
@@ -32,8 +34,8 @@ static func get_value(npc_id: String, initial := 0) -> int:
 
 ## 写某 NPC 的好感度（自动钳位到 [-100, 100]）。npc_id：人物卡 id；value：新值。
 static func set_value(npc_id: String, value: int) -> void:
-	DirAccess.make_dir_recursive_absolute(DIR)
-	JsonTool.write_json_file("%s/%s.json" % [DIR, npc_id],
+	DirAccess.make_dir_recursive_absolute(dir())
+	JsonTool.write_json_file("%s/%s.json" % [dir(), npc_id],
 		{"value": clampi(value, MIN_VALUE, MAX_VALUE)})
 
 

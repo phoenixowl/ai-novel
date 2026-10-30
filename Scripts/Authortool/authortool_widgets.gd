@@ -66,6 +66,16 @@ static func option(options: Array, selected := 0) -> OptionButton:
 	return btn
 
 
+## 复选框（布尔字段编辑用）。
+static func check(pressed := false) -> CheckBox:
+	var box := CheckBox.new()
+	box.button_pressed = pressed
+	box.custom_minimum_size.y = 40
+	box.add_theme_font_size_override("font_size", 14)
+	box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	return box
+
+
 ## 按钮：primary=true 为金底主按钮（导出等），否则暗底次级按钮。
 static func button(text: String, primary := false, compact := false) -> Button:
 	var btn := Button.new()

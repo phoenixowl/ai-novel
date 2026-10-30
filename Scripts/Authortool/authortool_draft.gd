@@ -1,13 +1,13 @@
 class_name AuthortoolDraft
 extends RefCounted
 ## AuthorTool 草稿模型（Scripts/Authortool/）：设定编辑页的全部编辑对象。
-## 装载来源 = res://settings/ 作者数据 + 运行时正典（CanonStore 全量，含被取代条目）
+## 装载来源 = settings/（初始世界观） + 运行时正典（CanonStore 全量，含被取代条目）
 ## + DM 风格四旋钮（GameConfig，只读快照）。
-## 编辑永远只改本内存草稿——不写 res://settings、不写 user:// 现有目录；
+## 编辑永远只改本内存草稿——不直接写 settings/；
 ## 唯一写出动作是 AuthortoolExporter 导出到独立目录。
 ## 人物/场景/组织卡以完整字典承载：表单只改已知键，未知键导出时原样带回（往返保真）。
 
-const SETTING_ROOT := "res://settings"
+static var SETTING_ROOT := GamePaths.settings_dir()
 
 
 var worldview := ""
@@ -16,6 +16,7 @@ var factions: Array = []      # 组织卡字典（全键保真：id/name/descrip
 var characters: Array = []    # 人物卡字典（全键保真：id/name/identity/profile/knowledge…）
 var scenes: Array = []        # 场景卡字典（全键保真：id/name/links/npcs…）
 var player := {}              # 玩家卡 {name, identity, appearance}
+var player_state := {}        # 玩家状态模板 {counters: […], collections: […]}（可缺省——引擎有内置默认）
 var facts: Array = []         # 事实 {id(仅展示), content, weight, source, scope: Array, status}
 var memory: Dictionary = {}   # npc_id -> 卡片字典（原样带出，暂无编辑页）
 var style := {}               # {adoption, verdict, density, threshold}
@@ -37,6 +38,7 @@ func load_from_project() -> Array[String]:
 	player = JsonTool.read_json_file(SETTING_ROOT + "/player.json")
 	if player.is_empty():
 		player = {"name": "来客", "identity": "", "appearance": ""}
+	player_state = JsonTool.read_json_file(SETTING_ROOT + "/player_state.json")
 
 	_load_memory()
 	_load_facts()
@@ -133,6 +135,7 @@ func _load_facts() -> void:
 			"content": str(d.get("content", "")),
 			"weight": str(d.get("weight", "minor")),
 			"source": str(d.get("source", "narrator")),
+			"visibility": str(d.get("visibility", "public")),
 			"scope": (d.get("scope", []) as Array).duplicate(),
 			"status": str(d.get("status", "active")),
 		})

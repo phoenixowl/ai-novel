@@ -35,7 +35,8 @@ const NEAR_LIMIT_HINT := "（提示：话题开始重复时，用符合性格的
 ## confirmed_history：已确认事件；cross_summary：背景摘要；
 ## knowledge_entries：信念层条目（含 stale 由渲染层现算）；
 ## world_facts：检索到的世界事实（NPC 所在地作用域 + 全局提要，均 major 全量 minor 封顶，硬线②只读）；
-## world_context：叙述域近期事件行（"此刻之前发生了什么"；DM 世界屏的共享上下文）；
+## world_context：叙述域近期事件行（"此刻之前这里发生了什么"；DM 世界屏的共享上下文）；
+## player_public_state：对方的公开状态行（状态模板 npc_visible 条目集；默认空）；
 ## turn_number/max_turns：轮次。
 static func build(
 		npc: Person,
@@ -50,6 +51,7 @@ static func build(
 		player_info := {},
 		world_facts: Array[CanonFact] = [],
 		world_context: Array[String] = [],
+		player_public_state: Array[String] = [],
 ) -> DialoguePack:
 	var pack := DialoguePack.new()
 	pack.turn_number = turn_number
@@ -79,6 +81,7 @@ static func build(
 	# 素材包·记忆：本段对话已确认的历史 + 跨对话摘要 + 世界上下文（共享经历）
 	pack.cross_dialogue_summary = cross_summary
 	pack.world_context = world_context.duplicate()
+	pack.player_public_state = player_public_state.duplicate()
 	pack.dialogue_history = confirmed_history.duplicate(true)
 
 	# 素材包·自身状态：阶段一用心情基准；由近期对话结果推导属阶段二

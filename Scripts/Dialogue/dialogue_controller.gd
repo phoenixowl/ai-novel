@@ -13,7 +13,7 @@ extends Node
 enum State {IDLE, WAITING_PLAYER, WAITING_NPC, ENDED}
 
 const MAX_TURNS := 12            # 单段对话轮次上限
-const EVENT_LOG_DIR := GamePaths.EVENT_LOG_DIR
+static var EVENT_LOG_DIR := GamePaths.event_log_dir()
 ## 叙述域事件注入对话材料包"此刻之前发生了什么"的行数
 const WORLD_CONTEXT_LINES := 6
 
@@ -55,7 +55,7 @@ func _ready() -> void:
 	_shared = self
 	# 事件集线器：UI 与本类经同一实例交互
 	_events = EventBus.resolve().hub(DialogueEvents) as DialogueEvents
-	# 流程一：加载设定资料（作者手动放置在 res://settings/ 下）
+	# 流程一：加载设定资料（settings/——初始世界观，开发期=项目目录，导出版=exe 同目录）
 	repository = LoreRepository.shared()  # 统一入口：作者数据全项目一份
 	# 连接 UI 命令信号
 	_events.cmd_start.connect(_on_cmd_start)
@@ -245,6 +245,7 @@ func _generate_response(player_text: String, confirmed_history: Array) -> void:
 		repository.player.to_prompt_dict(),
 		_retrieve_world_facts(current_person.entity_id),
 		_world_context_lines(),
+		PlayerStateStore.render_npc_lines(),
 	)
 	pack.session_lines = current_person.memory_lines()
 	_events.pack_built.emit(pack)
@@ -352,10 +353,12 @@ func _retrieve_world_facts(npc_id: String) -> Array[CanonFact]:
 	return facts
 
 
-## 统一入口的共享上下文：叙述域近期事件（"此刻之前发生了什么"）——
-## 经 WorldStream 全局入口只读（硬线②）；不含对话回声（对话自身的记录另有槽位，避免重复）。
+## 统一入口的共享上下文：**当前地点**发生的叙述域事件（"此刻之前这里发生了什么"）——
+## 经 WorldStream 全局入口只读（硬线②）；按地点过滤（别处的行动此地的 NPC 没亲眼所见），
+## 以 NPC 视角渲染（"你"→玩家称呼）；不含对话回声（对话自身的记录另有槽位，避免重复）。
 func _world_context_lines() -> Array[String]:
-	return WorldStream.recent_narration_only_lines(WORLD_CONTEXT_LINES)
+	return WorldStream.recent_witness_lines(WORLD_CONTEXT_LINES,
+		LocationStore.current(), repository.player.canonical_name)
 
 
 ## 记忆整理：对话结算后用 LLM 从完整事件流归纳一段记忆写入日志。

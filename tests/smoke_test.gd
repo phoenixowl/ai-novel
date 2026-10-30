@@ -3,8 +3,9 @@ extends SceneTree
 ##   godot --headless -s tests/smoke_test.gd
 ## 覆盖：Common 层（JsonTool/GameConfig）、流程一（设定资料加载）、
 ## KnowledgeEntry（信任算术/习得/复活/持久化/会话摘要）、流程二（材料包组装）、
-## 流程三（提示词拼装、回应校验含 learned/belief_updates）、第 0 步（输入审查）、
-## LLM 层（离线审查近似规则）。
+## 流程三（提示词拼装、回应校验：belief_updates 与 tool_calls 契约）、
+## Toolcall 命名空间（权限表/解析/混用留痕）、正典与融合检索、
+## LLM 层（离线 DM 路由近似）。
 ## 注意：检查逻辑延迟到主循环就绪后执行——_init 中直接 quit() 可能被忽略。
 
 var _ran := false
@@ -21,6 +22,9 @@ func _run() -> void:
 
 	var failures := 0
 	print("==== ai-novel 冒烟测试 ====")
+
+	# 设定目录确定性：工厂重置 user://settings（从内置模板重新播种）
+	TestUtil.reset_runtime()
 
 	# —— Common 层：JsonTool ——
 	failures = TestUtil.check(JsonTool.pick({"a": 1, "b": 2}, ["x", "b"], 0) == 2, "pick 按序取键", failures)
@@ -143,7 +147,7 @@ func _run() -> void:
 	failures = TestUtil.check(usr.contains("行动清单") and usr.contains("dialogue.end"), "材料层含行动清单与收场指引", failures)
 	failures = TestUtil.check(usr.contains("turn_id 填 3"), "材料层要求回显本轮编号", failures)
 
-	# —— 流程三：回应校验（含 learned / belief_updates 结构校验） ——
+	# —— 流程三：回应校验（belief_updates 与 tool_calls 契约） ——
 	var data_boxer: Variant = JsonTool.try_parse(MockClient.sample_boxer(3))
 	var parsed := ResponseParser.validate(data_boxer, 3)
 	failures = TestUtil.check(parsed.get("ok", false), "正常样本校验成功", failures)
@@ -327,6 +331,25 @@ func _run() -> void:
 		"args 非对象按扁平字段解析（多余键清理 + 权重回落）", failures)
 	failures = TestUtil.check(flat_notes.any(func(n): return str(n).contains("扁平")),
 		"args 非对象解析记入 notes", failures)
+	# —— world.travel（切换场景）：仅 DM + 邻接闭集（此时测试内当前位置为 teahouse） ——
+	failures = TestUtil.check(ToolcallCatalog.is_allowed(ToolcallCatalog.WORLD_TRAVEL, ToolcallCatalog.CALLER_DM)
+		and not ToolcallCatalog.is_allowed(ToolcallCatalog.WORLD_TRAVEL, ToolcallCatalog.CALLER_NPC),
+		"权限表：world.travel 仅 DM 可调", failures)
+	var tv_notes: Array[String] = []
+	var tv_ok := ToolcallParser.parse({"tool_calls": [
+		{"tool": "world.travel", "args": {"scene": "fangshi"}}]}, ToolcallCatalog.CALLER_DM, tv_notes)
+	failures = TestUtil.check(tv_ok.size() == 1
+		and str((tv_ok[0]["args"] as Dictionary).get("scene", "")) == "fangshi",
+		"world.travel：相邻目标通过（fangshi）", failures)
+	var tv_far := ToolcallParser.parse({"tool_calls": [
+		{"tool": "world.travel", "args": {"scene": "longdou_chang"}}]}, ToolcallCatalog.CALLER_DM, tv_notes)
+	failures = TestUtil.check(tv_far.is_empty()
+		and tv_notes.any(func(n): return str(n).contains("不相邻")),
+		"world.travel：不相邻目标（铁笼格斗场）被丢弃并记 note", failures)
+	var tv_alias := ToolcallParser.parse({"tool_calls": [
+		{"tool": "world.travel", "args": {"scene": "百草堂"}}]}, ToolcallCatalog.CALLER_DM, tv_notes)
+	failures = TestUtil.check(tv_alias.is_empty(),
+		"world.travel：名字解析（百草堂）后不在相邻闭集同样丢弃", failures)
 
 	# —— 旁白域：DMParser（DM 裁决契约 + 事实提取契约；话语与事实走工具调用） ——
 	var present_set := {"qin_zhi": true, "guan_dahe": true}
@@ -418,13 +441,8 @@ func _run() -> void:
 		],
 	}, pack_ids, true)
 	failures = TestUtil.check((n_strict.get("facts", []) as Array).size() == 1, "严格门槛：minor 新事实被丢弃、取代保留", failures)
-	var nconfirm: Dictionary = DMParser.validate_facts({
-		"facts": [],
-		"confirmed": [1, 2, "x", 99],
-	}, pack_ids, false)
-	failures = TestUtil.check((nconfirm.get("confirmed", []) as Array).size() == 2
-		and int((nconfirm.get("confirmed", []) as Array)[1]) == 2,
-		"提取契约：confirmed 闭集校验（非数字/越界忽略，保留 [1,2]）", failures)
+	failures = TestUtil.check(not n_strict.get("notes", []).any(func(n): return str(n).contains("confirmed")),
+		"提取契约：confirmed 旧字段退役（不再解析）", failures)
 
 	# —— 旁白域：DM 提示词与世界材料包 ——
 	var npb := DMPromptBuilder.new()
@@ -465,6 +483,15 @@ func _run() -> void:
 		"DM 材料层含在场人物清单（说话目标闭集）", failures)
 	failures = TestUtil.check(dm_usr.contains("前一拍你试过一件事") and dm_usr.contains("半个回应"),
 		"DM 材料层含近期世界流水（叙述与对话混排）", failures)
+	failures = TestUtil.check(dm_usr.contains("■ 玩家（你叙述与裁决的对象")
+		and dm_usr.contains("· 称呼："),
+		"DM 材料层含玩家卡段（无玩家信息时仅称呼回落行）", failures)
+	var pinfo_pack := DMPackBuilder.build("试", 1, "世界观", "", "teahouse", "半盏居", [],
+		[], "", null, PackedFloat32Array(), [], LoreRepository.shared().player.to_prompt_dict())
+	var pinfo_usr := npb.dm_user_prompt(pinfo_pack, dm_rows, "（没有正在进行的交谈）")
+	failures = TestUtil.check(pinfo_usr.contains("· 称呼：来客")
+		and pinfo_usr.contains("· 身份："),
+		"DM 材料层：玩家称呼与身份注入（材料包是唯一数据路径）", failures)
 	failures = TestUtil.check(dm_usr.contains("“我去半盏居找温掌柜”"), "DM 材料层原样携带输入", failures)
 	# 提取器提示词（结算时独立 agent 通读记录）
 	var sample_fact := CanonFact.new()
@@ -477,8 +504,32 @@ func _run() -> void:
 		canon_sample, ["[你·行动] 我从书架上抽一本书"])
 	failures = TestUtil.check(str(prompts.get("system", "")).contains("整理者")
 		and str(prompts.get("system", "")).contains("facts"), "提取器系统层含契约", failures)
-	failures = TestUtil.check(str(prompts.get("user", "")).contains("[3]") 
+	failures = TestUtil.check(str(prompts.get("user", "")).contains("[3]")
 		and str(prompts.get("user", "")).contains("抽一本书"), "提取器材料层含正典闭集与记录", failures)
+
+	# —— 世界流水：地点盖章与 NPC 见证渲染（跨场景不串场；句首“你”→玩家称呼，引语不动） ——
+	# 此时测试内当前位置为 teahouse；先在本地追加三条叙述，切到 fangshi 再追加一条
+	WorldStream.reset_for_test()
+	WorldStream.append_narration({"event": "player_action", "text": "我翻一翻柜台上的账本"}, 1)
+	WorldStream.append_narration({"event": "narration_turn", "outcome": "success", "text": "你翻开了账本"}, 1)
+	WorldStream.append_narration({"event": "narration_turn", "outcome": "success", "text": "你说：'我要见你'"}, 1)
+	var saved_loc := LocationStore.current()
+	LocationStore.travel_to("fangshi")
+	WorldStream.append_narration({"event": "player_action", "text": "我在作坊市街翻废料"}, 2)
+	var witness := WorldStream.recent_witness_lines(6, "teahouse", "来客")
+	failures = TestUtil.check(witness.size() == 3, "见证上下文：按地点过滤（作坊街的行动不串进半盏居）", failures)
+	failures = TestUtil.check(witness.size() >= 1 and str(witness[0]).contains("[来客·行动] 我翻一翻柜台上的账本"),
+		"见证渲染：行动行以玩家称呼为标签（不再是“你”）", failures)
+	failures = TestUtil.check(witness.size() >= 2 and str(witness[1]).contains("来客翻开了账本")
+		and not str(witness[1]).contains("你翻开"),
+		"见证渲染：句首说话者的“你”替换为玩家称呼", failures)
+	failures = TestUtil.check(witness.size() >= 3 and str(witness[2]).contains("来客说")
+		and str(witness[2]).contains("我要见你") and not str(witness[2]).contains("我要见来客"),
+		"见证渲染：引语内的“你”保持原样", failures)
+	failures = TestUtil.check(WorldStream.recent_mixed_lines(10).size() == 4,
+		"DM 混排窗口不受地点过滤（裁判记得玩家在别处做过的事）", failures)
+	LocationStore.travel_to(saved_loc)
+	WorldStream.reset_for_test()
 
 	# —— LLM 层：离线 DM 路由近似（真实环境由 LLM 裁决；材料包是输入的唯一路径） ——
 	var mock := MockClient.new()
@@ -522,31 +573,22 @@ func _run() -> void:
 		"删除后取代链置 0（无悬空引用）", failures)
 	failures = TestUtil.check(not CanonStore.erase(99999), "删除不存在条目返回失败", failures)
 
-	# —— 临时事实（支柱A：DM 行动申报 → 结算复核；全部用全局作用域，不干扰上方断言） ——
-	var prov_id := CanonStore.establish("来客刚把一本靛蓝封皮的薄册塞进怀里", "narrator", "minor", [], true)
-	failures = TestUtil.check(prov_id > 0
-		and CanonStore.entry(prov_id).status == CanonFact.FactStatus.PROVISIONAL,
-		"临时事实以 PROVISIONAL 入典", failures)
-	failures = TestUtil.check(CanonStore.find_by_content("来客刚把一本靛蓝封皮的薄册塞进怀里") == prov_id,
-		"临时事实可被学习路径消解（find_by_content 命中）", failures)
-	failures = TestUtil.check(CanonStore.global_digest().has(CanonStore.entry(prov_id)),
-		"检索通道含临时事实（全局提要命中）", failures)
-	var sup_prov: Dictionary = CanonStore.supersede(prov_id, "薄册后来被来客放回了书架", "narrator", "minor")
-	failures = TestUtil.check(int(sup_prov.get("old_id", 0)) == prov_id
-		and CanonStore.entry(prov_id).status == CanonFact.FactStatus.SUPERSEDED,
-		"临时事实可被结算取代（复核路径，保留审计链）", failures)
-	var prov2 := CanonStore.establish("来客又在柜台边留下了一枚铜哨", "narrator", "minor", [], true)
-	CanonStore.establish("来客又在柜台边留下了一枚铜哨", "narrator", "minor")  # 确认性重述
-	failures = TestUtil.check(CanonStore.entry(prov2).status == CanonFact.FactStatus.ACTIVE,
-		"确认性重述（provisional=false）逐字命中临时条目即转正", failures)
-	var prov3 := CanonStore.establish("来客临走前要了一盏雾顶", "narrator", "minor", [], true)
-	var prov4 := CanonStore.establish("来客进门前在门口蹭了蹭鞋底的灰", "narrator", "minor", [], true)
-	var verdict: Dictionary = CanonStore.settle_provisional([prov3])
-	failures = TestUtil.check(int(verdict.get("confirmed", 0)) == 1
-		and int(verdict.get("discarded", 0)) == 1
-		and CanonStore.entry(prov3).status == CanonFact.FactStatus.ACTIVE
-		and CanonStore.entry(prov4) == null,
-		"settle_provisional 点名制：点名转正、未点名移除", failures)
+	# —— 会话草稿（SessionLedger）：DM 申报不入正典，结算时由整理者定夺 ——
+	var ledger := SessionLedger.new()
+	failures = TestUtil.check(ledger.push("来客刚把一本靛蓝封皮的薄册塞进怀里"),
+		"草稿申报入账", failures)
+	failures = TestUtil.check(not ledger.push("来客刚把一本靛蓝封皮的薄册塞进怀里"),
+		"草稿逐字去重（同一变化反复申报只记一次）", failures)
+	var ledger_lines := ledger.render_lines()
+	failures = TestUtil.check(ledger_lines.size() == 1
+		and str(ledger_lines[0]).contains("薄册塞进怀里"), "草稿渲染为未定事项行", failures)
+	failures = TestUtil.check(CanonStore.establish("来客刚把一本靛蓝封皮的薄册塞进怀里",
+		"narrator", "minor") > 0, "草稿与正典解耦：结算升格路径仍可独立入典", failures)
+	ledger.clear()
+	failures = TestUtil.check(ledger.size() == 0, "草稿随探索结算清空", failures)
+	failures = TestUtil.check(CanonStore.establish("冒烟旧式临时表述", "narrator", "minor") > 0
+		and CanonStore.entry(CanonStore.find_by_content("冒烟旧式临时表述")).status == CanonFact.FactStatus.ACTIVE,
+		"正典不再产生临时状态（establish 直接入典为 ACTIVE）", failures)
 
 	# —— 权重分层预算：major 全量注入，minor 封顶保最近（作用域与全局提要同规则） ——
 	for i in range(50):
@@ -584,7 +626,7 @@ func _run() -> void:
 		"全局提要预算：major 全量、minor 封顶 40", failures)
 
 	# —— 作者正典播种与卡面知识消解（world_model_design §5.1） ——
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/world/canon.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/world/canon.json")
 	CanonStore.reload_for_test()
 	var seeded := CanonStore.active_count()
 	failures = TestUtil.check(seeded >= 53, "作者正典播种（settings/canon.json：12 世界常识 + 7 组织设定 + 34 人物设定）", failures)
@@ -600,6 +642,148 @@ func _run() -> void:
 		"人物身份/简介事实按地点作用域注入（fangshi×9 / teahouse×5）", failures)
 	failures = TestUtil.check(CanonStore.facts_for_entities(["qin_zhi"]).size() == 2,
 		"提及秦峙命中其身份与简介事实", failures)
+
+	# —— 生成域（Gen）：可见性分层 / 候选知识池 / world.discover 契约 / 审核契约 ——
+	var vis_global := CanonStore.establish("冒烟全局事实", "narrator", "minor")
+	failures = TestUtil.check(CanonStore.entry(vis_global).visibility == CanonFact.FactVisibility.PUBLIC,
+		"可见性默认推导：全局 → PUBLIC", failures)
+	var vis_local := CanonStore.establish("冒烟本地事实", "narrator", "minor", ["fangshi"])
+	failures = TestUtil.check(CanonStore.entry(vis_local).visibility == CanonFact.FactVisibility.LOCAL,
+		"可见性默认推导：有作用域 → LOCAL", failures)
+	var vis_round := CanonFact.new()
+	vis_round.content = "冒烟法则"
+	vis_round.visibility = CanonFact.FactVisibility.LAW
+	failures = TestUtil.check(CanonFact.from_dict(vis_round.to_dict()).visibility == CanonFact.FactVisibility.LAW,
+		"可见性序列化往返（LAW）", failures)
+	var gen_pool := GenKnowledgePool.build("fangshi", ["qin_zhi"])
+	var pool_has_law := false
+	var pool_has_local := false
+	var pool_has_far := false
+	for f in gen_pool.facts:
+		if f.content.contains("魔力是一种如空气般"):
+			pool_has_law = true
+		if f.content.contains("夜巡队是铜锈区"):
+			pool_has_local = true
+		if f.content.contains("半盏居的掌柜是温叙") or f.content.contains("贺川是翡翠市商会的会长"):
+			pool_has_far = true
+	failures = TestUtil.check(pool_has_law and pool_has_local and not pool_has_far,
+		"候选知识池：公共层+本地层命中，异地事实不泄漏", failures)
+	failures = TestUtil.check(gen_pool.fact_of(1) != null and gen_pool.fact_of(9999) == null,
+		"候选知识池编号闭集", failures)
+	CanonStore.erase(vis_global)
+	CanonStore.erase(vis_local)
+	failures = TestUtil.check(ToolcallCatalog.is_allowed(ToolcallCatalog.WORLD_DISCOVER, ToolcallCatalog.CALLER_DM)
+		and not ToolcallCatalog.is_allowed(ToolcallCatalog.WORLD_DISCOVER, ToolcallCatalog.CALLER_NPC),
+		"权限表：world.discover 仅 DM 可调", failures)
+	var dsc_notes: Array[String] = []
+	var dsc_bad := ToolcallParser.parse({"tool_calls": [
+		{"tool": "world.discover", "args": {"kind": "city", "brief": "x"}}]},
+		ToolcallCatalog.CALLER_DM, dsc_notes)
+	failures = TestUtil.check(dsc_bad.is_empty() and dsc_notes.any(func(n): return str(n).contains("kind")),
+		"world.discover：非法 kind 丢弃并记 note", failures)
+	var long_brief := "很".repeat(70)
+	var dsc_cap := ToolcallParser.parse({"tool_calls": [
+		{"tool": "world.discover", "args": {"kind": "location", "brief": long_brief}}]},
+		ToolcallCatalog.CALLER_DM, dsc_notes)
+	failures = TestUtil.check(dsc_cap.size() == 1
+		and str((dsc_cap[0]["args"] as Dictionary).get("brief", "")).length() == 60,
+		"world.discover：brief 超 60 字截断", failures)
+	var auditor := GenAuditAgent.new()
+	var audit_notes: Array[String] = []
+	failures = TestUtil.check(str(auditor.validate({"verdict": "pass", "issues": []}, audit_notes).get("verdict")) == "pass",
+		"审核契约：pass 通过", failures)
+	failures = TestUtil.check(str(auditor.validate({"verdict": "pass", "issues": ["问题"]}, audit_notes).get("verdict")) == "revise",
+		"审核契约：有问题清单时按 revise 处理", failures)
+	failures = TestUtil.check(str(auditor.validate({"verdict": "放行"}, audit_notes).get("verdict")) == "pass"
+		and audit_notes.any(func(n): return str(n).contains("verdict")),
+		"审核契约：非法 verdict 按 pass 兜底并记 note", failures)
+
+	# —— 玩家状态（Player）：模板驱动的计数器与条目集 ——
+	PlayerStateStore.reset_all()
+	var ps_col := PlayerStateSchema.collection("items")
+	failures = TestUtil.check(not ps_col.is_empty() and bool(ps_col.get("canon_sync", false)),
+		"状态模板：items 条目集 canon_sync 开启（欲望之都模板加载）", failures)
+	failures = TestUtil.check(not PlayerStateSchema.counter("crystal").is_empty(),
+		"状态模板：crystal 计数器存在", failures)
+	var ps_notes: Array[String] = []
+	var ps_res: Dictionary = PlayerStateStore.apply({"counters": {"crystal": 5}}, ps_notes)
+	var ps_snap := PlayerStateStore.snapshot()
+	failures = TestUtil.check(bool(ps_res.get("changed", false))
+		and int(ps_snap["counters"].get("crystal", -1)) == 15,
+		"计数器增量落地（开场 10 + 5 = 15）", failures)
+	PlayerStateStore.apply({"counters": {"crystal": -999}}, ps_notes)
+	ps_snap = PlayerStateStore.snapshot()
+	failures = TestUtil.check(int(ps_snap["counters"].get("crystal", -1)) == 0
+		and ps_notes.any(func(n): return str(n).contains("钳制")),
+		"计数器下限钳位为 0 并记 note", failures)
+	var ps_add: Dictionary = PlayerStateStore.apply({"add": [
+		{"collection": "items", "entry": {"name": "安神汤", "qty": 1, "note": "百草堂"}},
+		{"collection": "背囊", "entry": {"name": "不存在"}},
+	]}, ps_notes)
+	ps_snap = PlayerStateStore.snapshot()
+	failures = TestUtil.check((ps_snap["collections"].get("items", []) as Array).size() == 1
+		and str(ps_add.get("summary", "")).contains("安神汤"),
+		"条目新增落地（未知条目集记 note）", failures)
+	var ps_rm: Dictionary = PlayerStateStore.apply({"remove": [
+		{"collection": "items", "match": {"name": "不存在的"}},
+	]}, ps_notes)
+	failures = TestUtil.check(not bool(ps_rm.get("changed", false))
+		and ps_notes.any(func(n): return str(n).contains("没有匹配")),
+		"匹配不到的删除忽略并记 note", failures)
+	var ps_upd: Dictionary = PlayerStateStore.apply({"update": [
+		{"collection": "items", "match": {"name": "安神汤"}, "set": {"qty": 2}},
+	]}, ps_notes)
+	ps_snap = PlayerStateStore.snapshot()
+	failures = TestUtil.check(bool(ps_upd.get("changed", false))
+		and int(((ps_snap["collections"]["items"][0]) as Dictionary).get("qty", 0)) == 2,
+		"条目按模板字段更新（qty 1→2）", failures)
+	var ps_tool_notes: Array[String] = []
+	var ps_calls := ToolcallParser.parse({"tool_calls": [
+		{"tool": "player.state", "args": {
+			"counters": {"crystal": 1, "金币": 2},
+			"add": [
+				{"collection": "items", "entry": {"name": "灯"}},
+				{"collection": "背囊", "entry": {"name": "x"}},
+				{"collection": "items", "entry": {"qty": 3}},
+			],
+		}},
+	]}, ToolcallCatalog.CALLER_DM, ps_tool_notes)
+	failures = TestUtil.check(ps_calls.size() == 1, "player.state 调用保留（含有效变更）", failures)
+	if ps_calls.size() == 1:
+		var ps_args: Dictionary = ps_calls[0]["args"]
+		failures = TestUtil.check((ps_args["counters"] as Dictionary).has("crystal")
+			and not (ps_args["counters"] as Dictionary).has("金币"),
+			"工具三级闭集：未知计数器（金币）丢弃", failures)
+		failures = TestUtil.check((ps_args["add"] as Array).size() == 1
+			and str(((ps_args["add"] as Array)[0] as Dictionary).get("entry", {}).get("name", "")) == "灯",
+			"工具三级闭集：未知条目集丢弃、缺必填字段丢弃", failures)
+	failures = TestUtil.check(ps_tool_notes.any(func(n): return str(n).contains("金币"))
+		and ps_tool_notes.any(func(n): return str(n).contains("背囊")),
+		"越界键逐条记入 notes", failures)
+	failures = TestUtil.check(not PlayerStateStore.render_dm_lines().is_empty()
+		and PlayerStateStore.render_npc_lines().is_empty(),
+		"渲染：DM 行含计数器；npc_visible 全关时不外泄", failures)
+	failures = TestUtil.check(ToolcallCatalog.is_allowed(ToolcallCatalog.PLAYER_STATE, ToolcallCatalog.CALLER_DM)
+		and not ToolcallCatalog.is_allowed(ToolcallCatalog.PLAYER_STATE, ToolcallCatalog.CALLER_NPC),
+		"权限表：player.state 仅 DM 可调", failures)
+	# 显示名（label）解析：模型只能看到提示词里的显示名（晶石/随身物品/名称），必须同样可校验
+	PlayerStateStore.reset_all()
+	var ps_label_notes: Array[String] = []
+	var ps_label: Dictionary = PlayerStateStore.apply({"counters": {"晶石": -1},
+		"add": [{"collection": "随身物品", "entry": {"名称": "火漆信", "数量": 1}}]}, ps_label_notes)
+	var ps_snap2 := PlayerStateStore.snapshot()
+	failures = TestUtil.check(bool(ps_label.get("changed", false))
+		and int(ps_snap2["counters"].get("crystal", -1)) == 9
+		and (ps_snap2["collections"].get("items", []) as Array).size() == 1
+		and str((((ps_snap2["collections"].get("items", []) as Array)[0]) as Dictionary).get("name", "")) == "火漆信",
+		"显示名解析：晶石/随身物品/名称 均可校验且落地规范化为 key", failures)
+	var ps_rm2: Dictionary = PlayerStateStore.apply({"remove": [
+		{"collection": "随身物品", "match": {"名称": "火漆信"}}]}, ps_label_notes)
+	ps_snap2 = PlayerStateStore.snapshot()
+	failures = TestUtil.check(bool(ps_rm2.get("changed", false))
+		and (ps_snap2["collections"].get("items", []) as Array).is_empty(),
+		"显示名解析：按显示名匹配删除", failures)
+	PlayerStateStore.reset_all()
 
 	# —— 话题栈（骨架层 S4 信号源） ——
 	var stack := TopicStack.new()
@@ -669,7 +853,7 @@ func _run() -> void:
 	failures = TestUtil.check(CanonStore.embedding_model() == "test-embed-model",
 		"嵌入模型名随正典持久化", failures)
 	CanonStore.erase(vfact)
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/wen_xu.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/characters/wen_xu.json")
 	keeper.reset_knowledge_to_author()  # 作者卡原始知识重建（含正典消解）
 	failures = TestUtil.check(keeper.knowledge.size() == 14, "作者卡知识构建：条目数不变", failures)
 	var ref_count := 0
@@ -693,8 +877,21 @@ func _run() -> void:
 		"AuthorTool：运行时正典全量入草稿（53 条）", failures)
 	failures = TestUtil.check(draft.style.has("adoption") and draft.style.has("threshold"),
 		"AuthorTool：风格四旋钮快照", failures)
+	failures = TestUtil.check(not draft.player_state.is_empty()
+		and (draft.player_state.get("counters", []) as Array).size() >= 1
+		and (draft.player_state.get("collections", []) as Array).size() >= 1,
+		"AuthorTool：玩家状态模板装载（计数器+条目集）", failures)
+	failures = TestUtil.check(PlayerStateSchema.validate_schema_shape(draft.player_state),
+		"AuthorTool：模板结构校验通过", failures)
+	# 事实 visibility 随草稿往返（装载→导出）
+	var vis_seen := false
+	for raw in draft.facts:
+		if not str((raw as Dictionary).get("visibility", "")).is_empty():
+			vis_seen = true
+			break
+	failures = TestUtil.check(vis_seen, "AuthorTool：事实装载含 visibility 字段", failures)
 	draft.worldview += "\nAuthorTool 导出测试标记"
-	var test_root := "user://authortool_export_test"
+	var test_root := GamePaths.export_dir() + "/_test"
 	var outcome: Dictionary = AuthortoolExporter.export_draft(draft, test_root)
 	failures = TestUtil.check(bool(outcome.get("ok", false)), "AuthorTool：导出成功", failures)
 	var out_dir := str(outcome.get("path", ""))
@@ -702,14 +899,21 @@ func _run() -> void:
 		and FileAccess.file_exists(out_dir + "/factions.json")
 		and FileAccess.file_exists(out_dir + "/canon.json")
 		and FileAccess.file_exists(out_dir + "/style.json")
+		and FileAccess.file_exists(out_dir + "/player_state.json")
 		and FileAccess.file_exists(out_dir + "/memory/wen_xu.json")
 		and FileAccess.file_exists(out_dir + "/characters/wen_xu.json"),
-		"AuthorTool：导出文件集完整（含记忆与人物卡）", failures)
+		"AuthorTool：导出文件集完整（含记忆、人物卡与玩家状态模板）", failures)
 	failures = TestUtil.check((FileAccess.get_file_as_string(out_dir + "/worldview.txt") as String)
 		.contains("AuthorTool 导出测试标记"), "AuthorTool：草稿修改随导出生效", failures)
 	var exported_canon := JsonTool.read_json_file(out_dir + "/canon.json")
 	failures = TestUtil.check((exported_canon.get("facts", []) as Array).size() == draft.active_fact_count(),
 		"AuthorTool：事实导出仅含 active（%d 条）" % draft.active_fact_count(), failures)
+	var vis_exported := false
+	for raw in exported_canon.get("facts", []):
+		if (raw as Dictionary).has("visibility"):
+			vis_exported = true
+			break
+	failures = TestUtil.check(vis_exported, "AuthorTool：visibility 随导出保留（作者正典播种格式）", failures)
 	var exported_keeper := JsonTool.read_json_file(out_dir + "/characters/wen_xu.json")
 	failures = TestUtil.check(str(exported_keeper.get("id", "")) == "wen_xu"
 		and (exported_keeper.get("knowledge", []) as Array).size() == 14,
@@ -718,8 +922,8 @@ func _run() -> void:
 	failures = TestUtil.check(not DirAccess.dir_exists_absolute(test_root),
 		"AuthorTool：测试导出目录已清理", failures)
 
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/characters/wen_xu.json")
-	DirAccess.remove_absolute(OS.get_user_data_dir() + "/world/canon.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/characters/wen_xu.json")
+	DirAccess.remove_absolute(GamePaths.save_dir() + "/world/canon.json")
 	CanonStore.reset_for_test()
 	EntityRegistry.reset_for_test()
 	LocationStore.reset_for_test()

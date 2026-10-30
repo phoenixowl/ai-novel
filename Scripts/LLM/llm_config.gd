@@ -1,13 +1,15 @@
 class_name LLMConfig
 extends RefCounted
-## DeepSeek API 配置存取（LLM 层）。保存在本机 user://config.cfg。
+## DeepSeek API 配置存取（LLM 层）。保存在本机 saves/config.cfg。
 ## API Key 默认为空——为空时 LLMController 自动改用离线示例客户端。
 ## 模型名以官方文档为准（deepseek-chat / deepseek-reasoner 已于 2026-07-24 停用）：
 ##   deepseek-flash   默认模型（V4.1-Flash，低价快速）
 ##   deepseek-v4-pro  旗舰模型（长上下文，适合复杂生成）
 
 
-const CONFIG_PATH := "user://config.cfg"
+static func config_path() -> String:
+	return GamePaths.config_path()
+
 const SECTION := "deepseek"
 const AVAILABLE_MODELS := ["deepseek-flash", "deepseek-v4-pro"]
 const DEFAULT_MODEL := "deepseek-flash"
@@ -27,7 +29,7 @@ var max_tokens := DEFAULT_MAX_TOKENS  # 单次补全的输出上限（finish_rea
 ## （不叫 load()：避免遮蔽 GDScript 全局函数名）
 func load_from_disk() -> void:
 	var config := ConfigFile.new()
-	if config.load(CONFIG_PATH) != OK:
+	if config.load(config_path()) != OK:
 		return
 	api_key = str(config.get_value(SECTION, "api_key", ""))
 	model = str(config.get_value(SECTION, "model", DEFAULT_MODEL))
@@ -41,8 +43,8 @@ func load_from_disk() -> void:
 ## 写回本机配置（[deepseek] 节）。先读旧文件再写，保留 GameConfig 的 [game] 节。
 func save_to_disk() -> void:
 	var config := ConfigFile.new()
-	config.load(CONFIG_PATH)  # 无文件时忽略
+	config.load(config_path())  # 无文件时忽略
 	config.set_value(SECTION, "api_key", api_key)
 	config.set_value(SECTION, "model", model)
 	config.set_value(SECTION, "max_tokens", max_tokens)
-	config.save(CONFIG_PATH)
+	config.save(config_path())

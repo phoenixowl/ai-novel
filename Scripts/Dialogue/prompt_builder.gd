@@ -71,13 +71,19 @@ func user_prompt(pack: DialoguePack) -> String:
 			p.append("· [%d]（%s · %s）%s" % [
 				f.id, CanonFact.source_to_key(f.source), CanonFact.weight_to_key(f.weight), f.content])
 	p.append("")
-	p.append("■ 此刻之前发生了什么（你亲眼所见的世界，就在刚才）")
+	p.append("■ 此刻之前这里发生了什么（你亲眼所见——只含此地发生的事）")
 	if pack.world_context.is_empty():
 		p.append("（一切如常，没有特别的事）")
 	else:
 		for line in pack.world_context:
 			p.append("· " + line)
+		p.append("（以上旁白里的“你”均指玩家本人；引号内的话是当事人原话）")
 	p.append("")
+	if not pack.player_public_state.is_empty():
+		p.append("■ 对方的公开状态（你看得出来的）")
+		for line in pack.player_public_state:
+			p.append("· " + line)
+		p.append("")
 	p.append("■ 记忆")
 	for line in pack.session_lines:
 		p.append("· " + line)

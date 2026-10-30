@@ -1,7 +1,7 @@
 class_name DeepSeekClient
 extends LLMClient
 ## DeepSeek API 客户端（OpenAI 兼容的 chat/completions 协议）。
-## API Key 由用户在 UI『API 设置』中填写，保存在 user://config.cfg；
+## API Key 由用户在 UI『API 设置』中填写，保存在 saves/config.cfg；
 ## 为空时引擎不会使用本客户端，而是切换到离线示例客户端。
 ##
 ## 连接健壮性：每次请求新建一个短命的 HTTPRequest 子节点、用完即弃——

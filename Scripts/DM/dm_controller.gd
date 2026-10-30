@@ -27,7 +27,7 @@ extends Node
 
 enum State {WAITING_PLAYER, DM_RESOLVING, DESCRIBING, EXTRACTING, ENDED}
 
-const EVENT_LOG_DIR := GamePaths.EVENT_LOG_DIR
+static var EVENT_LOG_DIR := GamePaths.event_log_dir()
 ## 进场描述注入的近期流水行数（叙述与对话混排）。
 const DM_HISTORY_LINES := 10
 ## DM 材料包的流水窗口（混排行数）：持久后果已由 DM 申报进正典（临时事实通道），
@@ -62,6 +62,7 @@ var _dialogue_busy := false       # 人物域生成中（门控统一输入）
 var _dialogue_settling := false   # 对话结算中（dialogue_ended 引擎事件到信号之间的窗口）
 var _pending_switch: Dictionary = {}  # 自动切换对话：{npc, speech}，等结算完成后续送
 var _pending_force_end := false   # DM dialogue.end 与递话同回合：顺延到回应落地后强制收场
+var _ledger := SessionLedger.new()  # 会话草稿账：DM 申报的未定案变化（不入正典，结算定夺）
 
 static var _shared: DMController
 
@@ -153,9 +154,9 @@ func _exit_tree() -> void:
 
 
 ## 处理 cmd_submit_input：统一输入第一站——DM 判路由并分派。
-## 门控：自身可输入 且 对话不生成中 且 对话不在结算窗口。
+## 门控：自身可输入 且 对话不生成中 且 对话不在结算窗口 且 动态生成不在进行中。
 func _on_cmd_submit_input(text: String) -> void:
-	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling:
+	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling or _gen_busy():
 		return
 	var trimmed := text.strip_edges()
 	if trimmed.is_empty():
@@ -188,6 +189,10 @@ func _resolve_with_dm(input_text: String) -> void:
 		_partner_id,
 		_topics,
 		qvec,
+		LocationStore.neighbors(LocationStore.current()),
+		repository.player.to_prompt_dict(),
+		PlayerStateStore.render_dm_lines(),
+		_ledger.render_lines(),
 	)
 	_events.pack_built.emit(pack)
 
@@ -232,17 +237,24 @@ func _resolve_with_dm(input_text: String) -> void:
 			_events.world_input_rejected.emit(input_text, str(parsed.get("reason", "")))
 		"action":
 			_land_action(input_text, str(parsed.get("narration", "")), str(parsed.get("outcome", "pending")))
-			_land_declared_facts(parsed.get("facts", []))
+			_land_declared_drafts(parsed.get("facts", []))
 		"speech", "mixed":
 			if route == "mixed":
 				var action_text := str(parsed.get("action", ""))
 				_land_action(action_text if not action_text.is_empty() else input_text,
 					str(parsed.get("narration", "")), str(parsed.get("outcome", "pending")))
-				_land_declared_facts(parsed.get("facts", []))
+				_land_declared_drafts(parsed.get("facts", []))
 			_deliver_speech(parsed, present)
+	# world.travel 落地：解析期已过邻接闭集（ToolcallWorldTravel.validate_args），
+	# 此处只做与 cmd_travel_to 同款的门控消解——留痕记入 parsed.notes。
+	_apply_travel(parsed)
 	# DM 强制收场（dialogue.end 工具）落地——冲突消解记入 parsed.notes，之后才广播
 	# 裁决结果，④ 调试页能看到收场顺延/忽略的留痕。
 	_apply_force_end(parsed)
+	# 动态生成请求（world.discover 工具）转发给 Gen 域（DM 只表达意图，不参与生成）
+	_apply_discover(parsed)
+	# 玩家状态变更（player.state 工具）落地：模板校验 → 存档 → canon_sync → 广播
+	_apply_player_state(parsed)
 	_events.dm_resolved.emit(parsed)
 	# 话题栈衰减：仅世界回合落地时推进（纯话语不推进世界，栈不衰减）
 	if turn_number > landed_turn:
@@ -258,21 +270,23 @@ func _land_action(action_text: String, narration: String, outcome: String) -> vo
 		"outcome": outcome, "text": narration})
 
 
-## 落地 DM 申报的持久事实（临时事实通道）：以 PROVISIONAL 状态立即入正典——
-## 后续回合的事实检索与对话域学习即刻可及；结算时由整理者逐条复核（confirmed
-## 点名才转正，未点名的移除）。与既有事实（或先前申报）精确文本一致时无事发生。
-## 确定性闸门：单轮条数与单条长度超限的申报拦截（广播 fact_declare_blocked 留审计）。
+## 落地 DM 申报的持久事实变化（会话草稿）：**不入正典**——探索中的申报只是
+## 未定案的草稿（世界的工作记忆）：比如一次尚未完成的付账，不该立刻固化成
+## "不可违背的正典"。草稿让 DM 在后续回合稳定记得这些变化（世界流水窗口会
+## 滑走），结算时由整理者 agent 通读全量记录定夺去留（升格入正典或自然消亡）。
+## 确定性闸门：单轮条数与单条长度超限拦截（广播 fact_declare_blocked 留审计）；
+## 逐字去重（同一变化反复申报只记一次）。
 ## facts：DMParser 校验后的 [{content, weight}] 列表。
-func _land_declared_facts(facts: Array) -> void:
+func _land_declared_drafts(facts: Array) -> void:
 	if facts.is_empty():
 		return
-	var landed := 0
+	var declared := 0
 	for raw in facts:
 		var f := raw as Dictionary
 		var content := str(f.get("content", "")).strip_edges()
 		if content.is_empty():
 			continue
-		if landed >= DECLARE_PER_TURN_CAP:
+		if declared >= DECLARE_PER_TURN_CAP:
 			_emit_event({"event": "fact_declare_blocked", "content": content.substr(0, 40),
 				"reason": "超出单轮申报上限（%d 条），疑似总结式申报" % DECLARE_PER_TURN_CAP})
 			continue
@@ -281,22 +295,9 @@ func _land_declared_facts(facts: Array) -> void:
 				"reason": "表述超长（%d 字，上限 %d），疑似叙述摘录" % [
 					content.length(), DECLARE_CONTENT_MAX]})
 			continue
-		if CanonStore.find_by_content(content) > 0:
-			continue  # 重复申报或与既有事实逐字一致：无事发生
-		var weight_key := str(f.get("weight", "minor"))
-		var id := CanonStore.establish(content, "narrator", weight_key,
-			_scope_for(content, weight_key), true)
-		if id > 0:
-			landed += 1
-			var fact := CanonStore.entry(id)
-			_emit_event({"event": "fact_established", "id": id,
-				"source": CanonFact.source_to_key(fact.source),
-				"weight": CanonFact.weight_to_key(fact.weight),
-				"content": content, "provisional": true})
-	if landed > 0:
-		CanonStore.save()
-		_emit_canon()
-		_backfill_embeddings()
+		if _ledger.push(content):
+			declared += 1
+			_emit_event({"event": "fact_declared", "content": content})
 
 
 ## 话语分派：无对话 → 开始并送话；对象相同 → 直接送话；对象不同 → 结算当前再切换。
@@ -348,10 +349,125 @@ func _apply_force_end(parsed: Dictionary) -> void:
 		_dialogue_events.cmd_settle_now.emit()
 
 
+## 落地 DM 的 world.travel（切换场景）：解析期已过邻接闭集
+## （ToolcallWorldTravel.validate_args——目标必须与当前位置相邻），
+## 此处只做门控消解（与 cmd_travel_to 同款），全部记入 parsed.notes 留痕：
+##   reject 路由 → 忽略（拒绝的输入不触发世界变化）；
+##   对话进行中 / 结算窗口 / 切换挂起 → 忽略（可先 dialogue.end 收场再移动）；
+##   正常 → 确定性移动（落盘、事件、广播），首次进入触发进场描述（fire-and-forget）。
+func _apply_travel(parsed: Dictionary) -> void:
+	var target := ""
+	var travel_count := 0
+	for c in parsed.get("tool_calls", []) as Array:
+		var d := c as Dictionary
+		if str(d.get("tool", "")) == ToolcallCatalog.WORLD_TRAVEL:
+			travel_count += 1
+			if target.is_empty():
+				target = str((d.get("args", {}) as Dictionary).get("scene", ""))
+	if target.is_empty():
+		return
+	var notes: Array = parsed.get("notes", [])
+	if str(parsed.get("route", "")) == "reject":
+		notes.append("world.travel 与 reject 路由同回合：拒绝的输入不触发世界变化，移动已忽略。")
+	elif _dialogue_busy or _dialogue_settling or not _partner_id.is_empty() or not _pending_switch.is_empty():
+		notes.append("world.travel 被忽略：对话进行中不可移动（可先 dialogue.end 收场再移动）。")
+	elif not _travel(target):
+		notes.append("world.travel 落地失败：「%s」当前不可达。" % target)
+	else:
+		if not LocationStore.has_brief(target):
+			_describe_location(target)
+		if travel_count > 1:
+			notes.append("同回合多个 world.travel：仅第一个（%s）生效。" % target)
+
+
+## 动态生成是否进行中（Gen 域忙碌时闸住玩家输入——生成期间世界暂停）。
+func _gen_busy() -> bool:
+	var gen := GenController.shared()
+	return gen != null and gen.busy
+
+
+## 落地 DM 的 world.discover：转发给 Gen 域（每段探索上限与总量上限在 Gen 侧拦截）。
+## 留痕记入 parsed.notes：拒绝原因或"已发起"。
+func _apply_discover(parsed: Dictionary) -> void:
+	var request_args := {}
+	var count := 0
+	for c in parsed.get("tool_calls", []) as Array:
+		var d := c as Dictionary
+		if str(d.get("tool", "")) == ToolcallCatalog.WORLD_DISCOVER:
+			count += 1
+			if request_args.is_empty():
+				request_args = d.get("args", {}) as Dictionary
+	if request_args.is_empty():
+		return
+	var notes: Array = parsed.get("notes", [])
+	if count > 1:
+		notes.append("同回合多个 world.discover：仅第一个生效。")
+	if str(parsed.get("route", "")) == "reject":
+		notes.append("world.discover 与 reject 路由同回合：拒绝的输入不触发生成，已忽略。")
+		return
+	if _gen_busy():
+		notes.append("world.discover 被忽略：上一次生成仍在进行。")
+		return
+	var kind := str(request_args.get("kind", ""))
+	var brief := str(request_args.get("brief", ""))
+	var gen := GenController.shared()
+	if gen == null or not gen.request(kind, brief, LocationStore.current()):
+		notes.append("world.discover 被引擎拒绝（每段探索上限 %d 次 / 总量上限，或生成器未就绪）。" % GenController.DISCOVER_PER_EXPLORATION)
+		return
+	notes.append("已发起动态生成（%s）——世界正在回应这个发现，请稍候。" % kind)
+
+
+## 落地 DM 的 player.state：校验已在工具层完成（模板三级闭集），此处执行
+## PlayerStateStore.apply 并处理 canon_sync（canon_sync=true 的条目集增删自动
+## 同步正典事实，挂玩家名下——NPC 侧的世界认知与玩家档案一致）。留痕记入
+## parsed.notes；变更进世界流水（player_state_changed）并广播给 UI。
+func _apply_player_state(parsed: Dictionary) -> void:
+	var ops := {}
+	var count := 0
+	for c in parsed.get("tool_calls", []) as Array:
+		var d := c as Dictionary
+		if str(d.get("tool", "")) == ToolcallCatalog.PLAYER_STATE:
+			count += 1
+			if ops.is_empty():
+				ops = d.get("args", {}) as Dictionary
+	if ops.is_empty():
+		return
+	var notes: Array = parsed.get("notes", [])
+	if count > 1:
+		notes.append("同回合多个 player.state：仅第一个生效。")
+	if str(parsed.get("route", "")) == "reject":
+		notes.append("player.state 与 reject 路由同回合：拒绝的输入不触发状态变化，已忽略。")
+		return
+	var apply_notes: Array[String] = []
+	var applied: Dictionary = PlayerStateStore.apply(ops, apply_notes)
+	for n in apply_notes:
+		notes.append(n)
+	if not bool(applied.get("changed", false)):
+		return
+	# canon_sync：物品类条目集的增删自动入典（挂玩家，LOCAL；精确去重防灌水）
+	var canon_changed := false
+	for op in applied.get("ops", []) as Array:
+		var o: Dictionary = op
+		if not bool(o.get("canon_sync", false)):
+			continue
+		if str(o.get("op", "")) == "add":
+			CanonStore.establish("%s获得了%s" % [repository.player.canonical_name, str(o.get("primary", ""))],
+				"narrator", "minor", ["player"])
+		elif str(o.get("op", "")) == "remove":
+			CanonStore.establish("%s失去了%s" % [repository.player.canonical_name, str(o.get("primary", ""))],
+				"narrator", "minor", ["player"])
+		canon_changed = true
+	if canon_changed:
+		CanonStore.save()
+		_emit_canon()
+	_emit_event({"event": "player_state_changed", "summary": str(applied.get("summary", ""))})
+	_events.player_state_changed.emit(PlayerStateStore.snapshot())
+
+
 ## 处理 cmd_talk_to：直接与在场人物开始交谈（位置面板捷径，绕过 DM）。
 ## 对话中点名别人同样走自动切换；点名当前对象则不动作。
 func _on_cmd_talk_to(npc_id: String) -> void:
-	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling:
+	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling or _gen_busy():
 		return
 	if npc_id == _partner_id:
 		return
@@ -422,10 +538,19 @@ func _on_dialogue_event(event: Dictionary) -> void:
 
 ## 处理 cmd_travel_to：移动到相邻地点（无 LLM）。对话进行中不可移动。
 func _on_cmd_travel_to(entity_id: String) -> void:
-	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling or not _partner_id.is_empty():
+	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling or _gen_busy() or not _partner_id.is_empty():
 		return
+	if not _travel(entity_id):
+		return
+	if not LocationStore.has_brief(entity_id):
+		_describe_location(entity_id)
+
+
+## 确定性移动（零模型参与）：邻接校验 → 落盘 → 事件 → 广播。返回是否移动成功。
+## UI 移动按钮与 world.travel 工具共用这一条落地带。
+func _travel(entity_id: String) -> bool:
 	if not LocationStore.travel_to(entity_id):
-		return
+		return false
 	LocationStore.save()
 	_emit_event({
 		"event": "location_travelled",
@@ -434,8 +559,7 @@ func _on_cmd_travel_to(entity_id: String) -> void:
 		"brief": LocationStore.brief(entity_id),
 	})
 	_broadcast_location()
-	if not LocationStore.has_brief(entity_id):
-		_describe_location(entity_id)
+	return true
 
 
 ## 首次进入某地点：组装进场包（场景卡素材 + 该地作用域正典 + 近期流水）→
@@ -482,7 +606,7 @@ func _describe_location(entity_id: String) -> void:
 
 ## 处理 cmd_settle_exploration：结束本段探索并结算。对话进行中不可结算。
 func _on_cmd_settle_exploration() -> void:
-	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling or not _partner_id.is_empty():
+	if state != State.WAITING_PLAYER or _dialogue_busy or _dialogue_settling or _gen_busy() or not _partner_id.is_empty():
 		return
 	var log_lines := WorldStream.session_lines()
 	if log_lines.is_empty():
@@ -496,7 +620,7 @@ func _on_cmd_settle_exploration() -> void:
 	var pack_ids := {}
 	for fact in canon:
 		pack_ids[fact.id] = true
-	var prompts := DMPromptBuilder.extraction_prompt(canon, log_lines)
+	var prompts := DMPromptBuilder.extraction_prompt(canon, log_lines, _ledger.render_lines(50))
 	_events.llm_request.emit("事实整理中（%s）…" % LLMController.shared().display_name())
 	var result: Dictionary = await LLMController.shared().complete_json(
 		str(prompts.get("system", "")), str(prompts.get("user", "")), LLMClient.PURPOSE_FACT_EXTRACT)
@@ -510,18 +634,14 @@ func _on_cmd_settle_exploration() -> void:
 	var parsed: Dictionary = DMParser.validate_facts(result["data"], pack_ids,
 		current_knobs().get("threshold", "宽松") == "严格")
 	var count := _land_extracted_facts(parsed.get("facts", []))
-	# 点名制复核：confirmed 里的临时事实转正，其余移除——整理者是永久正典的唯一守门人
-	var verdict: Dictionary = CanonStore.settle_provisional(parsed.get("confirmed", []))
-	var confirmed := int(verdict.get("confirmed", 0))
-	var discarded := int(verdict.get("discarded", 0))
-	if discarded > 0:
-		_emit_event({"event": "fact_discarded", "count": discarded,
-			"note": "结算未被点名的临时申报已移除"})
+	# 会话草稿到此定夺：整理者通读的记录已包含全部草稿——该升格的已入典，
+	# 未被提取的草稿随结算自然消亡（不再有"临时正典"概念）
+	_ledger.clear()
 	CanonStore.save()
 	_emit_canon()
 	_backfill_embeddings()
 	_emit_event({"event": "exploration_settled", "facts": count, "turns": turn_number,
-		"confirmed": confirmed, "discarded": discarded, "notes": parsed.get("notes", [])})
+		"notes": parsed.get("notes", [])})
 	state = State.ENDED
 	_broadcast_state()
 
@@ -533,9 +653,12 @@ func _on_cmd_start_exploration() -> void:
 	turn_number = 0
 	WorldStream.clear()
 	_topics.clear()
+	_ledger.clear()
 	_pending_switch = {}
 	_pending_force_end = false
 	_partner_id = ""
+	if GenController.shared() != null:
+		GenController.shared().reset_session()
 	state = State.WAITING_PLAYER
 	_emit_event({"event": "exploration_started"})
 	_broadcast_state()
@@ -595,7 +718,7 @@ func _on_cmd_delete_fact(fact_id: int) -> void:
 ## 处理 cmd_save_canon：显式保存事实库并广播绝对路径（浏览器保存按钮）。
 func _on_cmd_save_canon() -> void:
 	CanonStore.save()
-	_events.canon_saved.emit(ProjectSettings.globalize_path(CanonStore.PATH))
+	_events.canon_saved.emit(ProjectSettings.globalize_path(CanonStore.path()))
 
 
 ## 处理 cmd_reset_canon：一键把事实库重置为作者正典（settings/canon.json）。

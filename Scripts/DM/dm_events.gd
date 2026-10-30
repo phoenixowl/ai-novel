@@ -22,10 +22,11 @@ signal cmd_set_embedding_config(provider: String, api_key: String, model: String
 signal cmd_add_fact(payload: Dictionary)        # 事实库编辑：新增 {content, weight, source, scope_type, scope_id}
 signal cmd_edit_fact(payload: Dictionary)       # 事实库编辑：修改 {id, content, weight}
 signal cmd_delete_fact(fact_id: int)            # 事实库编辑：删除条目
-signal cmd_save_canon()                         # 显式保存事实库到 user://world/canon.json
+signal cmd_save_canon()                         # 显式保存事实库到 saves/world/canon.json
 signal cmd_reset_canon()                        # 一键重置事实库为作者正典（清除全部运行期事实）
 signal cmd_settle_exploration()                   # 结束本段探索并结算（事实整理者提取世界事实）
 signal cmd_start_exploration()                  # 结算后开始新探索（重置回合与记录）
+signal player_state_changed(state: Dictionary)     # 玩家状态变更（DM player.state 工具落地后；UI 刷新）
 
 # —— 事件（控制器 → UI） ——
 

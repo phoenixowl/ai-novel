@@ -52,6 +52,16 @@ func dm_user_prompt(pack: DMPack, present_rows: Array[String], partner_line: Str
 	p.append("  在场·名=关于眼前这个人，话题·名=你们刚聊到的对象，相关=与你所说的内容相关）")
 	_append_facts(p, pack.facts, pack.fact_tags)
 	p.append("")
+	p.append("■ 玩家（你叙述与裁决的对象；世界如何回应他，取决于他是什么人）")
+	var player_name := str(pack.player_info.get("name", ""))
+	p.append("· 称呼：%s" % (player_name if not player_name.is_empty() else "（无名来客）"))
+	var player_identity := str(pack.player_info.get("identity", ""))
+	if not player_identity.is_empty():
+		p.append("· 身份：%s" % player_identity)
+	var player_appearance := str(pack.player_info.get("appearance", ""))
+	if not player_appearance.is_empty():
+		p.append("· 外观（旁人眼中的样子）：%s" % player_appearance)
+	p.append("")
 	p.append("■ 在场人物（说话目标只能是他们；格式 [id] 规范名——身份）")
 	if present_rows.is_empty():
 		p.append("（此处没有可交谈的人）")
@@ -61,6 +71,13 @@ func dm_user_prompt(pack: DMPack, present_rows: Array[String], partner_line: Str
 	p.append("")
 	p.append("■ 当前正在交谈：%s" % partner_line)
 	p.append("")
+	p.append("■ 相邻地点（world.travel 可移动的目标；[id] 名字）")
+	if pack.neighbors.is_empty():
+		p.append("（四周没有可以直接走过去的路）")
+	else:
+		for nid in pack.neighbors:
+			p.append("· [%s] %s" % [nid, EntityRegistry.display_name(nid)])
+	p.append("")
 	p.append("■ 近期世界流水（叙述与交谈混排；只展示最近片段——更早的持久后果已沉淀为上方事实）")
 	if pack.history_lines.is_empty():
 		p.append("（一切刚刚开始）")
@@ -68,6 +85,16 @@ func dm_user_prompt(pack: DMPack, present_rows: Array[String], partner_line: Str
 		for line in pack.history_lines:
 			p.append("  " + line)
 	p.append("")
+	if not pack.player_state_lines.is_empty():
+		p.append("■ 玩家状态（此刻随身与未了之事；player.state 只能改这里列出的名称——计数器名与清单名，只记玩家行动确实造成的变化）")
+		for line in pack.player_state_lines:
+			p.append("  " + line)
+		p.append("")
+	if not pack.ledger_lines.is_empty():
+		p.append("■ 未定事项（此前申报、尚未定案的变化；facts.declare 只能继续申报这里列出的事项或其后续变化）")
+		for line in pack.ledger_lines:
+			p.append("  " + line)
+		p.append("")
 	p.append("【本轮材料】第 %d 拍 · %s —— 此刻现场已冻结。" % [
 		maxi(1, pack.turn_number), pack.location_name])
 	p.append("")
@@ -120,10 +147,13 @@ func _build_dm_system(knobs: Dictionary) -> String:
 	p.append("- 与既有事实矛盾的叙述不允许出现——改写世界事实只能发生在探索结算时，")
 	p.append("  由独立的整理者阅读全部记录后裁决，你在这一轮里没有改写权。")
 	p.append("- 叙述中可以自然带出物品、人物、方位、承诺、伤痕、变化——它们是世界的一部分。")
-	p.append("- 其中会持续存在的状态变化才经 facts.declare 工具申报（申报后立即成为")
-	p.append("  世界的既定事实，临时身份，结算时逐条复核）。申报标准——")
-	p.append("  · 只报玩家行动或事件造成的状态变化：物品的转移/获得/损毁、位置的移动、")
-	p.append("    承诺与约定、伤害、身份与关系的揭示、环境状态的改变（锁被撬开、火被点燃）。")
+	p.append("- 其中已经完成、且会持续的状态变化才经 facts.declare 工具申报（申报的内容会")
+	p.append("  成为世界的既定事实）。申报标准——")
+	p.append("  · 只报**已完成**的状态变化：意图与进行中的动作不报（“掏出晶石准备付钱”")
+	p.append("    不是事实，“茶钱已付清”才是）。")
+	p.append("  · 一次交互只报**最终状态**，不逐帧申报：点茶、递钱、找零是过程，全部结束")
+	p.append("    后报一次“茶钱已付清”即可。")
+	p.append("  · 不替玩家发明义务：玩家没有明确答应的欠账、承诺、交易不报。")
 	p.append("  · 禁止申报：环境与氛围描写（灰尘、光线、气味、声音）、NPC 的日常举动、")
 	p.append("    玩家的心情、对既有场景的静态观察。")
 	p.append("  · 检验：这件事会改变世界接下来的回应吗？十回合后还需要被记住吗？不会就不报。")
@@ -213,10 +243,12 @@ static func entry_prompt(location_name: String, environment: String, atmosphere:
 
 
 ## 事实提取提示词（探索结算：独立整理者 agent 通读完整记录后产出世界事实）。
-## canon_entries：注入的现行正典（[id] 供取代引用与 confirmed 点名的闭集）；log_lines：探索记录渲染行。
-## 输出契约 {facts: [{ref, content, weight, adopted_from_player}], confirmed: [id,…]}
-##（confirmed = 点名保留的临时事实），校验走 DMParser.validate_facts。
-static func extraction_prompt(canon_entries: Array[CanonFact], log_lines: Array[String]) -> Dictionary:
+## canon_entries：注入的现行正典（[id] 供取代引用的闭集）；log_lines：探索记录渲染行；
+## ledger_lines：DM 申报的未定事项草稿（信息已含于记录，注入是为了提示整理者重点定夺）。
+## 输出契约 {facts: [{ref, content, weight, adopted_from_player}]}，
+## 校验走 DMParser.validate_facts。
+static func extraction_prompt(canon_entries: Array[CanonFact], log_lines: Array[String],
+		ledger_lines: Array[String] = []) -> Dictionary:
 	var sys := "你是互动小说的世界事实整理者。玩家刚刚结束一段自由探索，下面是这段探索的完整记录"
 	sys += "与世界现行的正典。你的任务：从记录中提取应当成为世界事实的客观陈述，维护正典。\n"
 	sys += "提取规则：\n"
@@ -243,6 +275,12 @@ static func extraction_prompt(canon_entries: Array[CanonFact], log_lines: Array[
 				" · 临时" if fact.status == CanonFact.FactStatus.PROVISIONAL else "",
 				fact.content])
 	p.append("")
+	if not ledger_lines.is_empty():
+		p.append("■ 未定事项（探索中申报过的草稿——请结合记录逐一定夺：成立则提炼为事实，")
+		p.append("  不成立或已被后续事件推翻则忽略）")
+		for line in ledger_lines:
+			p.append("  " + line)
+		p.append("")
 	p.append("■ 本段探索的完整记录")
 	if log_lines.is_empty():
 		p.append("（没有记录）")

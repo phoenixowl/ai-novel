@@ -22,6 +22,9 @@ func _run() -> void:
 	var failures := 0
 	print("==== DM 统一入口回路测试 ====")
 
+	# 设定目录确定性：工厂重置 user://settings（从内置模板重新播种）
+	TestUtil.reset_runtime()
+
 	EventBus.create_shared()
 	var bus := EventBus.shared()
 	LLMController.create_shared()
@@ -42,7 +45,7 @@ func _run() -> void:
 	for f in ["world/canon.json", "world/entities.json", "world/locations.json",
 			"characters/qin_zhi.json", "characters/guan_dahe.json",
 			"affinity/qin_zhi.json", "affinity/guan_dahe.json"]:
-		DirAccess.remove_absolute(OS.get_user_data_dir() + "/" + f)
+		DirAccess.remove_absolute(GamePaths.save_dir() + "/" + f)
 
 	var dm := DMController.new()
 	root.add_child(dm)
@@ -76,10 +79,10 @@ func _run() -> void:
 	failures = TestUtil.check(usr1.contains("[qin_zhi]") and usr1.contains("秦峙"),
 		"DM 材料层含在场人物闭集（fangshi 三人）", failures)
 	failures = TestUtil.check(usr1.contains("我从货架上取一份报纸"), "DM 材料层原样携带输入", failures)
-	# 支柱A：行动回合申报的持久事实以临时状态入典（mock 样本申报一条）
-	failures = TestUtil.check(CanonStore.all_entries().size() == 1
-		and CanonStore.all_entries()[0].status == CanonFact.FactStatus.PROVISIONAL,
-		"行动申报：临时事实入典（PROVISIONAL）", failures)
+	# 支柱A：行动回合申报进入会话草稿（不入正典——正典只由结算写入）
+	failures = TestUtil.check(dm._ledger.size() == 1
+		and CanonStore.all_entries().is_empty(),
+		"行动申报：进入会话草稿（正典零写入）", failures)
 
 	# —— 场景二：说话路由——自动与首位在场者（秦峙）开始对话 ——
 	ne.cmd_submit_input.emit("请问这里最近安全吗？")
@@ -105,8 +108,8 @@ func _run() -> void:
 	failures = TestUtil.check(_count(seen["world"], "narration_turn") == 2,
 		"混合路由：行动后果已叙述", failures)
 	failures = TestUtil.check((seen["starts"] as Array).size() == 1, "混合路由：不重开对话", failures)
-	failures = TestUtil.check(CanonStore.all_entries().size() == 1,
-		"行动申报：重复申报精确去重（仍 1 条）", failures)
+	failures = TestUtil.check(dm._ledger.size() == 1,
+		"行动申报：重复申报精确去重（草稿仍 1 条）", failures)
 
 	# —— 场景四：点名切换对话——自动结算秦峙，转向关大河 ——
 	ne.cmd_submit_input.emit("关大河，麻烦你搭把手扶一下")
@@ -119,10 +122,10 @@ func _run() -> void:
 	failures = TestUtil.check(str((seen["starts"] as Array)[1]) == "guan_dahe",
 		"切换对话：新对话与关大河开始", failures)
 	for _i in range(30):
-		if FileAccess.file_exists(OS.get_user_data_dir() + "/characters/qin_zhi.json"):
+		if FileAccess.file_exists(GamePaths.save_dir() + "/characters/qin_zhi.json"):
 			break
 		await create_timer(0.3).timeout
-	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/characters/qin_zhi.json"),
+	failures = TestUtil.check(FileAccess.file_exists(GamePaths.save_dir() + "/characters/qin_zhi.json"),
 		"切换对话：秦峙快照落盘（记忆与学习结算）", failures)
 
 	# —— 场景五：结束交谈——回到行动域 ——
@@ -145,12 +148,10 @@ func _run() -> void:
 	failures = TestUtil.check(settled.size() == 1 and int((settled[0] as Dictionary).get("facts", 0)) == 2,
 		"结算提取 2 条事实（整理者样本）", failures)
 	failures = TestUtil.check(CanonStore.active_count() >= 2, "提取事实入典", failures)
-	failures = TestUtil.check(FileAccess.file_exists(OS.get_user_data_dir() + "/world/canon.json"),
+	failures = TestUtil.check(FileAccess.file_exists(GamePaths.save_dir() + "/world/canon.json"),
 		"正典结算后持久化", failures)
-	failures = TestUtil.check(not _has_provisional(), "结算复核：临时事实全部处理（转正或移除）", failures)
-	failures = TestUtil.check(int((settled[0] as Dictionary).get("confirmed", 0)) == 1
-		and int((settled[0] as Dictionary).get("discarded", 0)) == 0,
-		"结算点名制：临时事实经 confirmed 转正", failures)
+	failures = TestUtil.check(dm._ledger.size() == 0,
+		"结算定夺：会话草稿清空（升格入典或自然消亡）", failures)
 
 	# —— 场景八：开始新探索——回合与记录重置，世界保留 ——
 	ne.cmd_start_exploration.emit()
@@ -160,11 +161,39 @@ func _run() -> void:
 	failures = TestUtil.check(CanonStore.active_count() >= 2 and LocationStore.current() == "teahouse",
 		"新探索保留世界（正典与位置）", failures)
 
+	# —— 场景九：world.travel 工具——DM 经工具把玩家移动到相邻场景 ——
+	ne.cmd_submit_input.emit("我去作坊市街逛逛")
+	await _wait_dm(dm, 10.0)
+	failures = TestUtil.check(LocationStore.current() == "fangshi",
+		"world.travel：DM 工具移动到相邻场景（茶馆→作坊市街）", failures)
+	failures = TestUtil.check(_count(seen["world"], "location_travelled") >= 1,
+		"world.travel：移动事件落档", failures)
+	# 反例：从作坊市街不能直达渊薮之外的不相邻地点（渊薮相邻，改用白银廊广场）
+	ne.cmd_submit_input.emit("我去白银廊的白庭广场")
+	await _wait_dm(dm, 10.0)
+	failures = TestUtil.check(LocationStore.current() == "fangshi",
+		"world.travel：不相邻目标被邻接闭集丢弃（位置不变）", failures)
+
+	# —— 场景十：玩家状态工具——DM 申报状态变更并落档（canon_sync + 事件广播） ——
+	PlayerStateStore.reset_all()
+	ne.cmd_submit_input.emit("我用两枚晶石买下摊子上那盏符文灯")
+	await _wait_dm(dm, 10.0)
+	var ps_state := PlayerStateStore.snapshot()
+	failures = TestUtil.check(int(ps_state["counters"].get("crystal", -1)) == 8,
+		"player.state：晶石 10−2 落地", failures)
+	failures = TestUtil.check((ps_state["collections"].get("items", []) as Array).size() == 1,
+		"player.state：物品条目（符文灯）落地", failures)
+	failures = TestUtil.check(CanonStore.find_by_content("来客获得了符文灯") > 0,
+		"player.state：canon_sync 自动入典（挂玩家名下）", failures)
+	failures = TestUtil.check(_count(seen["world"], "player_state_changed") >= 1,
+		"player.state：变更事件进世界流水", failures)
+
 	# —— 清理测试产生的运行时档案 ——
+	PlayerStateStore.reset_all()
 	for f in ["world/canon.json", "world/entities.json", "world/locations.json",
 			"characters/qin_zhi.json", "characters/guan_dahe.json",
 			"affinity/qin_zhi.json", "affinity/guan_dahe.json"]:
-		DirAccess.remove_absolute(OS.get_user_data_dir() + "/" + f)
+		DirAccess.remove_absolute(GamePaths.save_dir() + "/" + f)
 	TestUtil.clear_gen_characters()
 	CanonStore.reset_for_test()
 	EntityRegistry.reset_for_test()
@@ -221,9 +250,4 @@ func _events_of(events: Array, kind: String) -> Array:
 	return out
 
 
-## 正典中是否仍有临时事实（结算复核断言用）。
-func _has_provisional() -> bool:
-	for fact in CanonStore.all_entries():
-		if fact.status == CanonFact.FactStatus.PROVISIONAL:
-			return true
-	return false
+## （临时事实概念已退役：DM 申报走会话草稿 SessionLedger，正典只由结算写入。）

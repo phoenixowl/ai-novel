@@ -16,6 +16,10 @@ const PURPOSE_MEMORY := "memory"              ## 对话结算后的记忆与知�
 const PURPOSE_ENTRY_DESCRIBE := "entry_describe"  ## 首次进场描述（一次性生成后冻结）
 const PURPOSE_FACT_EXTRACT := "fact_extract"  ## 探索结算后的世界事实提取（独立整理者）
 const PURPOSE_DM := "dm"                      ## DM 裁决（统一入口：路由 + 行动后果叙述）
+const PURPOSE_GEN_LOCATION := "gen_location"      ## 动态生成：新地点（Gen 层）
+const PURPOSE_GEN_CHARACTER := "gen_character"    ## 动态生成：新人物（Gen 层）
+const PURPOSE_GEN_FACTION := "gen_faction"        ## 动态生成：新组织（Gen 层）
+const PURPOSE_GEN_AUDIT := "gen_audit"            ## 动态生成：一致性审核者（Gen 层，三管线共用）
 
 
 # ———— 退役机制（换配置时防悬挂 await） ————

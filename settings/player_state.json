@@ -1,0 +1,29 @@
+{
+  "counters": [
+    {"key": "crystal", "label": "晶石", "min": 0, "max": 999, "initial": 10,
+     "hint": "把魔力封入晶格的硬通货；缴税、买药、买消息都落到晶石上"}
+  ],
+  "collections": [
+    {"key": "items", "label": "随身物品", "cap": 20, "canon_sync": true, "npc_visible": false,
+     "fields": [
+       {"key": "name", "label": "名称", "required": true, "max": 40},
+       {"key": "qty", "label": "数量", "type": "int", "min": 1, "max": 99, "default": 1},
+       {"key": "note", "label": "备注", "max": 60}
+     ]},
+    {"key": "conditions", "label": "身体状态", "cap": 10, "canon_sync": false, "npc_visible": false,
+     "fields": [
+       {"key": "name", "label": "状况", "required": true, "max": 40},
+       {"key": "note", "label": "说明", "max": 60}
+     ]},
+    {"key": "bonds", "label": "未了之约", "cap": 20, "canon_sync": false, "npc_visible": false,
+     "fields": [
+       {"key": "text", "label": "内容", "required": true, "max": 80},
+       {"key": "done", "label": "已完成", "type": "bool", "default": false}
+     ]},
+    {"key": "clues", "label": "线索备注", "cap": 30, "canon_sync": false, "npc_visible": false,
+     "fields": [
+       {"key": "text", "label": "内容", "required": true, "max": 80},
+       {"key": "source", "label": "来源", "max": 20}
+     ]}
+  ]
+}

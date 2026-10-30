@@ -35,6 +35,11 @@ UI 层与逻辑层严格分离，底层能力（JSON 工具、LLM 服务、事�
 
 ## 目录结构
 
+> **注意**：下面这棵目录树写于 2026-10 统一入口改造与 Toolcall 层之前（Lore/、Narration/
+> 等目录已重组为 Characters/、DM/、World/、Toolcall/），文件名以
+> [docs/code_reading_guide.md](docs/code_reading_guide.md) §5 的当前文件地图为准；
+> 此处仅保留设定数据（settings/）部分的说明。
+
 ```
 settings/                     【作者数据】设定资料固定目录（作者手动编写放置，运行期只读）
   worldview.txt                 世界观（纯文本）
@@ -196,17 +201,18 @@ UI 层不创建、不持有任何逻辑层实例。各域控制器以 autoload �
 
 | 设计条目 | 实现位置 |
 |---|---|
-| 输入审查（前置第 0 步，扩展需求） | `InputReviewer` + `DialogueController._review_then_generate`（被拒输入不入流水；失败开放） |
+| 注入/元输入拦截（原输入审查） | DM 路由 `reject`：`DMPromptBuilder` 路由规则 + `DMParser.validate_dm`（被拒输入不入世界流水） |
 | 4.1 第1步 玩家开口/防注入 | `DialogueController.submit_player_input`（原样入记录）+ `PromptBuilder._build_system` 防注入条款 |
-| 4.1 第3步 冻结现场 | `MaterialPackBuilder.build`（组装后不变） |
+| 4.1 第3步 冻结现场 | `DialoguePackBuilder.build`（组装后不变） |
 | 4.1 第4步 两层提示词 | `PromptBuilder.system_prompt`（按 NPC 缓存）/ `user_prompt` |
-| 4.3 素材包五要素 | `MaterialPack` 字段 |
-| 4.4 行动清单（仅对话行动） | `MaterialPackBuilder.dialogue_actions()`（统一“类型+目标+说明”格式） |
+| 4.3 素材包五要素 | `DialoguePack` 字段 |
+| 4.4 行动清单（答话/沉默；收场走工具） | `DialoguePackBuilder.dialogue_actions()` + `ToolcallCatalog`（dialogue.end） |
 | 4.5 回应四要素 | `ResponseParser.validate`（JSON 提取由 `LLMController.complete_json`/`JsonTool` 完成） |
+| 工具调用与权限（DM/NPC 可调什么） | `Scripts/Toolcall/`：`ToolcallBase` 基类 + 各 `Toolcall*` 工具类（权限/文档/校验内聚）/ `ToolcallCatalog`（注册）/ `ToolcallParser`（校验）/ `ToolcallRenderer`（提示词文档） |
 | 4.9 状态机与轮次上限 | `DialogueController`（State 枚举 / MAX_TURNS / 近上限提示） |
 | 4.10 记录与跨对话记忆 | `DialogueController._emit_event` → `AuditLog` 落档 + `settings/memory/*.json` 摘要注入 |
 | 5.6 接入点 | 行动格式统一①、落地即裁决②、事件流水③、claim_type 落档④、知识检索入口⑤ |
-| 知识习得与信念变化 | `KnowledgeJournal` + `DialogueController._process_learning`（子串锚定/闭集校验/确定性信任算术） |
+| 知识习得与信念变化 | `Person.knowledge` + `DialogueController._settle_learning`（belief.propose 闭集校验/确定性信任算术） |
 | 4.1 兜底 | 解析失败注入保底沉默（`_fallback_response`）——宁可冷淡，不可胡说 |
 
 **暂未实现（属后续里程碑）**：结构检查的反馈重试（M1.1）、事实审核模型三问（M1.3）、
